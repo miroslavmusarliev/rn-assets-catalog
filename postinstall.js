@@ -50,7 +50,9 @@ try {
   // this script, which needs assets/images/ to exist first) — it's the "zero manual setup" half
   // of this tool's pitch, so it shouldn't wait for the project to have added its first asset.
   // Both are additive-only (see their own doc comments), so re-running this on every `npm install`
-  // never re-touches a script/path entry the project has already customized.
+  // never re-touches a script/path entry the project has already customized. Both wire straight to
+  // this package's own bins — no shim/copy of any kind while the package is actually installed;
+  // uninstalling is handled separately (see uninstall.js).
   const { addedScripts, addedHooks } = ensurePackageJsonWiring(root);
   for (const name of addedScripts) {
     console.log(`rn-assets-catalog: package.json didn't have an "${name}" script — added one`);

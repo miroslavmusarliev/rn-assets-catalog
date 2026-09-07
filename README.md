@@ -220,6 +220,13 @@ too, without needing to run either command yourself first. It never replaces act
 `generate:images` as a `pre*` hook (see step 3 below) — that's still what keeps the generated
 catalogs in sync as you add/change images afterward.
 
+**Uninstalling** (`npm uninstall rn-assets-catalog`) doesn't leave `generate:images`/`asset-catalog`
+pointed at a bin that no longer exists — a `preuninstall` script ejects this package's own files
+into an `asset-catalog-tool/` folder in your project (same layout as Option B below) and repoints
+those two scripts at the copy, so `npm start`/`ios`/`android`/`web` keep working with zero ongoing
+dependency. See [UNINSTALL.md](./UNINSTALL.md) for the full writeup, including what's deliberately
+left untouched and how to eject manually if your uninstall flow skips lifecycle scripts.
+
 (Pin a tag/commit instead of a branch for anything beyond local experimentation —
 `github:miroslavmusarliev/rn-assets-catalog#v0.1.1` — so a later push to the tool's own repo can't
 silently change what a consuming project's `npm install` pulls in.)

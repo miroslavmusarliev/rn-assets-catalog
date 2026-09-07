@@ -15,7 +15,9 @@
     "asset-catalog-server.js",
     "asset-catalog.html",
     "postinstall.js",
-    "README.md"
+    "uninstall.js",
+    "README.md",
+    "UNINSTALL.md"
   ],
   "engines": {
     "node": ">=16.0.0"
@@ -45,6 +47,7 @@
   },
   "scripts": {
     "postinstall": "node ./postinstall.js",
+    "preuninstall": "node ./uninstall.js",
     "test": "echo \"no test suite yet\" && exit 0"
   },
   "dependencies": {},
