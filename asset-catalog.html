@@ -364,6 +364,9 @@
     let colorEntries = [];
     let appIconPlatforms = {}; // { ios?: { slots: {...} }, android?: {...}, web?: {...} } — a
                                  // platform key is absent entirely when that platform isn't configured
+    let appIconNativeStatus = { ios: false, android: false }; // whether ios//android/ actually exist
+                                 // on disk right now — drives whether "sync to native project" has
+                                 // anywhere to write into yet (web has no native project at all)
     let undoCount = 0;
     let nextUndoLabel = null;
     let activeTab = 'images'; // 'images' | 'colors' | 'app' — which catalog the sidebar/detail pane shows
@@ -566,6 +569,7 @@
       entries = json.entries;
       colorEntries = json.colorEntries || [];
       appIconPlatforms = json.appIconPlatforms || {};
+      appIconNativeStatus = json.appIconNativeStatus || { ios: false, android: false };
       undoCount = json.undoCount || 0;
       nextUndoLabel = json.nextUndoLabel || null;
       undoButton.disabled = undoCount === 0;
@@ -1812,6 +1816,77 @@
         wrap.appendChild(renderAppIconSlotBlock(platform, slot, filename, info.help[slot]));
       }
 
+      wrap.appendChild(document.createElement('hr')).className = 'divider';
+
+      // ---- "set as app icon" (app.json wiring) + "sync to native project" (direct file copy) ----
+      // Neither of these touches the assets/app-icon/ files themselves (those are already written
+      // the moment a slot above is uploaded) — this section is about propagating what's already on
+      // disk into app.json and, optionally, straight into the native ios/android project.
+      const appJsonSection = document.createElement('div');
+      appJsonSection.className = 'field-block';
+
+      const appJsonTitle = document.createElement('label');
+      appJsonTitle.textContent = 'App.json wiring';
+      appJsonSection.appendChild(appJsonTitle);
+
+      const primarySlot = platform === 'ios' ? 'light' : platform === 'android' ? 'foreground' : 'favicon';
+      const primarySlotPresent = Boolean(state && state.slots[primarySlot]);
+
+      const disclaimer = document.createElement('div');
+      disclaimer.className = 'field-help';
+      disclaimer.textContent = platform === 'web'
+        ? 'Sets expo.web.favicon in app.json. The web build reads that file directly — no rebuild or native step needed afterwards.'
+        : `Sets expo.${platform === 'ios' ? 'ios.icon' : 'android.adaptiveIcon'} in app.json to point at the file(s) above. A ` +
+          'running app only picks this up after you either re-run `expo prebuild` (or a fresh native build), or press ' +
+          '"Sync to native project" below to copy these files directly into the existing ios/android folders instead.';
+      appJsonSection.appendChild(disclaimer);
+
+      const setBtn = document.createElement('button');
+      setBtn.type = 'button';
+      setBtn.textContent = 'Set this icon as the app icon';
+      setBtn.disabled = !primarySlotPresent;
+      setBtn.title = primarySlotPresent
+        ? `Writes app.json's ${platform} icon fields to point at assets/app-icon/${platform}/`
+        : `Upload the "${primarySlot}" icon above first`;
+      setBtn.addEventListener('click', async () => {
+        try {
+          const json = await api('POST', `/api/app-icon/${platform}/apply-app-json`);
+          applyResult(json);
+          showToast('ok', `${APP_ICON_PLATFORM_LABELS[platform]}: app.json updated`);
+        } catch (err) {
+          showToast('err', err.message);
+        }
+      });
+      appJsonSection.appendChild(setBtn);
+
+      if (platform !== 'web') {
+        const nativeExists = appIconNativeStatus[platform];
+        const syncBtn = document.createElement('button');
+        syncBtn.type = 'button';
+        syncBtn.textContent = `Sync to native ${platform === 'ios' ? 'ios/' : 'android/'} project`;
+        syncBtn.style.marginLeft = '8px';
+        syncBtn.disabled = !primarySlotPresent || !nativeExists;
+        syncBtn.title = !nativeExists
+          ? `No ${platform === 'ios' ? 'ios/' : 'android/'} directory found — run \`expo prebuild\` at least once first`
+          : !primarySlotPresent
+          ? `Upload the "${primarySlot}" icon above first`
+          : platform === 'ios'
+          ? 'Copies these files directly into Images.xcassets/AppIcon.appiconset (bypasses expo prebuild)'
+          : 'Copies these files into a single Android density bucket (bypasses expo prebuild — see warnings after)';
+        syncBtn.addEventListener('click', async () => {
+          try {
+            const json = await api('POST', `/api/app-icon/${platform}/sync-native`);
+            applyResult(json);
+            const syncWarnings = (json.nativeSync && json.nativeSync.warnings) || [];
+            showToast('ok', `${APP_ICON_PLATFORM_LABELS[platform]}: synced to native project` + (syncWarnings.length ? ` — ${syncWarnings.join('; ')}` : ''));
+          } catch (err) {
+            showToast('err', err.message);
+          }
+        });
+        appJsonSection.appendChild(syncBtn);
+      }
+
+      wrap.appendChild(appJsonSection);
       wrap.appendChild(document.createElement('hr')).className = 'divider';
 
       const deleteBtn = document.createElement('button');

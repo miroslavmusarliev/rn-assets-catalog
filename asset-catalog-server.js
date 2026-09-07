@@ -56,6 +56,9 @@ const {
   isAppIconSlot,
   resolveAppIconPlatformDir,
   scanAppIcon,
+  applyAppIconToAppJson,
+  syncAppIconToNative,
+  appIconNativeStatus,
   AssetCatalogError,
 } = require("./lib/asset-catalog-core");
 
@@ -318,6 +321,7 @@ function regenerate() {
     colorWarnings: colors.warnings,
     appIconPlatforms: appIcon.platforms,
     appIconWarnings: appIcon.warnings,
+    appIconNativeStatus: appIconNativeStatus(root),
   };
 }
 
@@ -586,6 +590,24 @@ async function handleAppIconPlatformDelete(req, res, platform) {
   sendJson(res, 200, withUndoMeta(regenerate()));
 }
 
+/** "Set this icon as the app icon" — writes the platform's currently-present assets/app-icon/
+ * files into app.json's matching expo.ios.icon/expo.android.adaptiveIcon/expo.web.favicon fields.
+ * Doesn't touch any native ios/ or android/ folder — that's handleAppIconSyncNative's job — so a
+ * project still needs a `expo prebuild` (or the sync-native button below) before this actually
+ * shows up in a running app. */
+async function handleAppIconApplyToAppJson(req, res, platform) {
+  const applied = applyAppIconToAppJson(root, appIconDir, platform);
+  sendJson(res, 200, { ...withUndoMeta(regenerate()), appJsonApplied: applied });
+}
+
+/** Direct best-effort copy of the platform's assets/app-icon/ files into the native ios/ or
+ * android/ project, bypassing `expo prebuild` — see syncAppIconToNative's own doc comment for
+ * exactly what this does (and doesn't) reproduce per platform. */
+async function handleAppIconSyncNative(req, res, platform) {
+  const synced = syncAppIconToNative(root, appIconDir, platform);
+  sendJson(res, 200, { ...withUndoMeta(regenerate()), nativeSync: synced });
+}
+
 async function handleUndo(req, res) {
   const entry = undoStack.pop();
   if (!entry) {
@@ -712,6 +734,8 @@ const server = http.createServer((req, res) => {
         if (req.method === "PUT" && segments.length === 4) return handleAppIconUpload(req, res, segments[2], segments[3]);
         if (req.method === "DELETE" && segments.length === 4) return handleAppIconSlotDelete(req, res, segments[2], segments[3]);
         if (req.method === "DELETE" && segments.length === 3) return handleAppIconPlatformDelete(req, res, segments[2]);
+        if (req.method === "POST" && segments.length === 4 && segments[3] === "apply-app-json") return handleAppIconApplyToAppJson(req, res, segments[2]);
+        if (req.method === "POST" && segments.length === 4 && segments[3] === "sync-native") return handleAppIconSyncNative(req, res, segments[2]);
       }
       if (req.method === "POST" && segments[0] === "api" && segments[1] === "undo" && segments.length === 2) {
         return handleUndo(req, res);

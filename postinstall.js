@@ -8,8 +8,10 @@
  * exactly the right behavior for a build gate, exactly the wrong behavior here: a project that
  * just ran `npm install` for the very first time has no assets/images/ yet, and `npm install`
  * itself must never fail because of that. So this script scaffolds whatever it safely can
- * (hooks/, assets/index.ts, the generated catalogs IF there's already something to generate) and
- * quietly no-ops the rest — log a note, never throw, never a non-zero exit.
+ * (hooks/, assets/index.ts, the generated catalogs IF there's already something to generate, the
+ * package.json scripts/pre* hooks and tsconfig.json `@/assets` alias — see ensurePackageJsonWiring/
+ * ensureTsconfigAssetsAlias) and quietly no-ops the rest — log a note, never throw, never a
+ * non-zero exit.
  *
  * Root resolution is the one thing that has to be different from generate-asset-catalog.js's own
  * `process.cwd()`: npm runs a DEPENDENCY's lifecycle scripts (postinstall included) with cwd set
@@ -31,6 +33,8 @@ const {
   ensureAssetCatalogHooks,
   ensureAssetsIndexBarrel,
   scanAppIcon,
+  ensurePackageJsonWiring,
+  ensureTsconfigAssetsAlias,
   AssetCatalogError,
 } = require("./lib/asset-catalog-core");
 
@@ -40,6 +44,30 @@ const colorsDir = path.join(root, "assets", "colors");
 const appIconDir = path.join(root, "assets", "app-icon");
 const assetsDir = path.join(root, "assets");
 const hooksDir = path.join(root, "hooks");
+
+try {
+  // Package.json/tsconfig.json wiring runs unconditionally on every install (unlike the rest of
+  // this script, which needs assets/images/ to exist first) — it's the "zero manual setup" half
+  // of this tool's pitch, so it shouldn't wait for the project to have added its first asset.
+  // Both are additive-only (see their own doc comments), so re-running this on every `npm install`
+  // never re-touches a script/path entry the project has already customized.
+  const { addedScripts, addedHooks } = ensurePackageJsonWiring(root);
+  for (const name of addedScripts) {
+    console.log(`rn-assets-catalog: package.json didn't have an "${name}" script — added one`);
+  }
+  for (const name of addedHooks) {
+    console.log(`rn-assets-catalog: package.json didn't have a "${name}" hook — wired it to run generate:images`);
+  }
+  const { added: addedTsconfigPaths } = ensureTsconfigAssetsAlias(root);
+  for (const key of addedTsconfigPaths) {
+    console.log(`rn-assets-catalog: tsconfig.json didn't have a "${key}" path alias — added one`);
+  }
+} catch (err) {
+  // Best-effort, same as everything else in this file — a package.json/tsconfig.json this can't
+  // safely parse just means the user wires those two by hand, not a failed install.
+  const message = err instanceof AssetCatalogError ? err.message : err.stack;
+  console.log(`rn-assets-catalog: package.json/tsconfig.json wiring skipped (${message})`);
+}
 
 try {
   if (!fs.existsSync(imagesDir)) {
