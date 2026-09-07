@@ -221,7 +221,7 @@ too, without needing to run either command yourself first. It never replaces act
 catalogs in sync as you add/change images afterward.
 
 (Pin a tag/commit instead of a branch for anything beyond local experimentation —
-`github:miroslavmusarliev/rn-assets-catalog#v0.1.0` — so a later push to the tool's own repo can't
+`github:miroslavmusarliev/rn-assets-catalog#v0.1.1` — so a later push to the tool's own repo can't
 silently change what a consuming project's `npm install` pulls in.)
 
 **Option B — drop-in folder (no package manager involved at all):**
