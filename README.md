@@ -211,6 +211,15 @@ caring where in `node_modules` it physically landed:
   "asset-catalog": "asset-catalog"
 }
 ```
+The install itself also runs a `postinstall` script that scaffolds `hooks/` and `assets/index.ts`
+(and regenerates the catalogs, if `assets/images/` already has something in it) — best-effort
+only, so a brand-new project with no images yet just logs a note instead of failing the install.
+It's the same "materialize once" scaffolding `generate-asset-catalog.js`/`asset-catalog-server.js`
+already do on their own first run — this just means you get it immediately after `npm install`
+too, without needing to run either command yourself first. It never replaces actually wiring
+`generate:images` as a `pre*` hook (see step 3 below) — that's still what keeps the generated
+catalogs in sync as you add/change images afterward.
+
 (Pin a tag/commit instead of a branch for anything beyond local experimentation —
 `github:miroslavmusarliev/rn-assets-catalog#v0.1.0` — so a later push to the tool's own repo can't
 silently change what a consuming project's `npm install` pulls in.)
