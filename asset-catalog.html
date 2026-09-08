@@ -165,8 +165,10 @@
     background: repeating-linear-gradient(45deg, var(--control-border), var(--control-border) 3px, transparent 3px, transparent 6px);
   }
   .list-item .color-swatch {
+    position: relative;
     width: 18px; height: 18px; flex-shrink: 0; border-radius: 4px;
     border: 1px solid var(--panel-border);
+    overflow: hidden;
     background-image: repeating-conic-gradient(#8888 0% 25%, transparent 0% 50%);
     background-size: 8px 8px;
   }
@@ -266,15 +268,44 @@
   .swatch.dark { background: var(--swatch-dark); }
   /* A color-catalog entry's swatch (unlike an image preview's) shows the color itself, which may
      carry alpha — the checkerboard shows through however translucent the color is, same idea as
-     Photoshop/Figma's transparency grid. Set via background-color (not background), so this
-     background-image survives. */
+     Photoshop/Figma's transparency grid. It's always present on this element (painted via
+     background-image); the actual color goes on a separate .color-fill child (below) instead of
+     this same element's background-color, because CSS always paints an element's background-image
+     ABOVE its own background-color — putting the color there would have it sit *under* the
+     checkerboard's gray squares, tinting even a fully opaque color instead of hiding the pattern
+     completely like it should. */
   .swatch.color-preview {
     background-image: repeating-conic-gradient(#8888 0% 25%, transparent 0% 50%);
     background-size: 16px 16px;
   }
-  .color-alpha-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-  .color-alpha-row input[type="range"] { flex: 1; }
-  .color-alpha-row .alpha-value { font-size: 11px; color: var(--text-dim); min-width: 34px; text-align: right; }
+  .color-fill { position: absolute; inset: 0; }
+  /* A color entry's own "light"/"dark" caption uses the app's real primary tint colors (the same
+     --tint-light/--tint-dark a 'template' image is tinted with) rather than the generic
+     translucent black/white .swatch.light/.swatch.dark use for an image preview's caption — tying
+     the label's own color back to what "light"/"dark" actually renders as in this app. More
+     specific than .swatch.light/.swatch.dark's own rule below, so this wins regardless of order. */
+  .swatch.color-preview.light .swatch-label { color: var(--tint-light); }
+  .swatch.color-preview.dark .swatch-label { color: var(--tint-dark); }
+  /* The light/dark color-entry control: a native swatch picker, a hex text field to type/paste
+     one directly, a percent number input for opacity (the only way to set alpha when not typed
+     into the hex field — the swatch itself has no alpha support of its own), and a plain copyable
+     rgba() line below reflecting the result — see createColorPicker's doc comment. */
+  .color-picker-row { display: flex; flex-direction: column; gap: 6px; }
+  .color-picker-top { display: flex; align-items: center; gap: 8px; }
+  .color-picker-swatch { width: 38px; height: 30px; padding: 2px 3px; flex-shrink: 0; }
+  .color-picker-hex {
+    width: 100px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .color-picker-alpha { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .color-picker-alpha input[type="number"] { width: 62px; text-align: right; }
+  .color-picker-alpha span { font-size: 11px; color: var(--text-dim); }
+  .color-copy-line {
+    display: flex; align-items: center; gap: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px; color: var(--text-dim);
+  }
+  .color-copy-line .color-copy-text { padding: 2px 0; }
   .swatch.droppable { cursor: copy; }
   .swatch.clickable:hover { outline: 2px solid var(--select); outline-offset: -2px; }
   .swatch.drag-over { outline: 2px dashed var(--select); outline-offset: -2px; }
@@ -330,7 +361,9 @@
     max-width: 260px;
   }
   .path-row .path-text:hover { color: var(--text); text-decoration: underline; }
-  .path-row .path-icon-btn {
+  /* Not scoped to .path-row — also reused by color-copy-line's copy button, as a generic small
+     icon-only button. */
+  .path-icon-btn {
     width: 18px; height: 18px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
     background: transparent; border: none; padding: 0;
@@ -338,10 +371,10 @@
     cursor: pointer;
     border-radius: 4px;
   }
-  .path-row .path-icon-btn:hover { background: var(--control-bg-hover); color: var(--text); }
-  .path-row .path-icon-btn svg { width: 12px; height: 12px; }
+  .path-icon-btn:hover { background: var(--control-bg-hover); color: var(--text); }
+  .path-icon-btn svg { width: 12px; height: 12px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  select, button, input[type="text"] {
+  select, button, input[type="text"], input[type="number"] {
     font: inherit;
     background: var(--control-bg);
     color: var(--text);
@@ -355,6 +388,12 @@
   button:disabled { opacity: 0.35; cursor: default; }
   button.danger { color: var(--err); }
   button.danger:hover:not(:disabled) { background: var(--danger-hover-bg); }
+  .checkbox-row {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text); cursor: pointer;
+    margin: 4px 0 8px;
+  }
+  .checkbox-row input[type="checkbox"] { cursor: pointer; }
   label.file-btn { display: inline-flex; }
   label.file-btn input { display: none; }
   .create-btn { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
@@ -362,26 +401,14 @@
   .create-btn:disabled { background: var(--control-bg); border-color: var(--control-border); color: var(--text-dim); }
   .divider { border: none; border-top: 1px solid var(--panel-border); margin: 22px 0; }
 
-  .toast {
-    position: fixed;
-    left: 296px;
-    right: 16px;
-    bottom: 16px;
-    font-size: 12px;
-    border-radius: 8px;
-    padding: 9px 14px;
-    display: none;
-    white-space: pre-wrap;
-  }
-  .toast.ok { display: block; background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok); }
-  .toast.err { display: block; background: var(--err-bg); color: var(--err); border: 1px solid var(--err); }
-
-  /* Errors and scan warnings ("missing directory ...", "ignoring unrecognized file ...") don't
-     use .toast above — unlike a brief action confirmation, they can be long (a full filesystem
-     path) and need to stay visible until dealt with, so a full-width bar would permanently eat a
-     row of the page. Instead they collect here, in the otherwise-empty top-right corner of the
-     viewport: a small collapsed bubble (badge = count, red if any entry is an error, amber if
-     warnings only) that expands into a scrollable list on click. */
+  /* Every message — action confirmations, errors, and scan warnings ("missing directory ...",
+     "ignoring unrecognized file ...") — collects here, in the otherwise-empty top-right corner of
+     the viewport, instead of a full-width bottom bar that would block controls beneath it (a
+     confirmation toast used to sit right over the Delete button). A small collapsed bubble
+     (badge = count, red if any entry is an error, amber if warnings but no errors, green if only
+     plain confirmations) expands into a scrollable list on click. Confirmations (kind 'ok') expire
+     and remove themselves after 5s; errors and warnings stick around until dismissed (or, for scan
+     warnings, until they no longer apply — see setScanWarnings). */
   .notif-center {
     position: fixed; top: 16px; right: 16px; z-index: 50;
     display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
@@ -402,6 +429,7 @@
     box-shadow: 0 2px 10px rgba(0,0,0,0.3);
   }
   .notif-bubble.warn-only { background: var(--warn); }
+  .notif-bubble.ok-only { background: var(--ok); }
   .notif-bubble .notif-bubble-count {
     position: absolute; top: -5px; right: -5px;
     background: var(--panel); border: 1.5px solid currentColor;
@@ -413,6 +441,7 @@
      white text color, rendering white-on-(near-)white and making the count unreadable. */
   .notif-bubble .notif-bubble-count { color: var(--err); }
   .notif-bubble.warn-only .notif-bubble-count { color: var(--warn); }
+  .notif-bubble.ok-only .notif-bubble-count { color: var(--ok); }
   .notif-panel {
     width: 360px; max-width: calc(100vw - 32px);
     max-height: min(70vh, 520px);
@@ -443,6 +472,7 @@
   .notif-item .notif-message { flex: 1; }
   .notif-item.err { background: var(--err-bg); color: var(--err); }
   .notif-item.warn { background: var(--warn-bg); color: var(--warn); }
+  .notif-item.ok { background: var(--ok-bg); color: var(--ok); }
   .notif-item .notif-dismiss {
     background: none; border: none; cursor: pointer; color: inherit; opacity: 0.6;
     font-size: 13px; flex-shrink: 0; padding: 0 2px; line-height: 1.5;
@@ -477,7 +507,6 @@
     </aside>
     <main id="detail" class="detail"></main>
   </div>
-  <div id="toast" class="toast"></div>
   <div id="notifCenter" class="notif-center">
     <button id="notifBubble" class="notif-bubble" type="button" title="Show messages" hidden>
       <span aria-hidden="true">!</span>
@@ -495,7 +524,6 @@
   <script>
     const listEl = document.getElementById('list');
     const detailEl = document.getElementById('detail');
-    const toastEl = document.getElementById('toast');
     const notifBubble = document.getElementById('notifBubble');
     const notifBubbleCount = document.getElementById('notifBubbleCount');
     const notifPanel = document.getElementById('notifPanel');
@@ -583,32 +611,26 @@
       renderList();
     });
 
-    // Two separate notification mechanisms, by design:
-    //  - .toast (showToast('ok', ...)) — a brief action confirmation ("light image replaced").
-    //    Short-lived by nature, replaced by the next one, fine as a transient full-width bar.
-    //  - the notif center below (showToast('err', ...) and setScanWarnings()) — errors and scan
-    //    warnings, which can be long (a full filesystem path) and need to stay visible until the
-    //    user deals with them, so they collect in the top-right corner instead of permanently
-    //    eating a row of the page. `source: 'scan'` entries are wholesale replaced every time
-    //    setScanWarnings() runs (once at startup and after every mutation, via applyResult) so a
-    //    resolved warning disappears on its own; `source: 'action'` entries (one-off failures) are
-    //    appended and stick around until individually dismissed.
+    // Every message collects in the top-right notif center — see its CSS comment for why (a
+    // bottom bar used to block controls underneath it, like the Delete button). `source: 'scan'`
+    // entries are wholesale replaced every time setScanWarnings() runs (once at startup and after
+    // every mutation, via applyResult) so a resolved warning disappears on its own; `source:
+    // 'action'` entries (showToast — one-off confirmations/failures) are appended and, for kind
+    // 'ok' only, auto-dismiss themselves after 5s (errors need a human to actually notice and deal
+    // with them, so those stick around like warnings do).
     let notifications = [];
     let notifNextId = 1;
     let notifExpanded = false;
+    const OK_NOTIFICATION_LIFETIME_MS = 5000;
 
     function showToast(kind, message) {
-      if (kind === 'err') {
-        notifications.push({ id: notifNextId++, kind: 'err', source: 'action', message });
-        renderNotifCenter();
-        return;
+      const id = notifNextId++;
+      const entry = { id, kind, source: 'action', message };
+      notifications.push(entry);
+      if (kind === 'ok') {
+        entry.timeoutId = setTimeout(() => dismissNotification(id), OK_NOTIFICATION_LIFETIME_MS);
       }
-      toastEl.className = 'toast ' + kind;
-      toastEl.textContent = message;
-    }
-    function clearToast() {
-      toastEl.className = 'toast';
-      toastEl.textContent = '';
+      renderNotifCenter();
     }
 
     /** Replaces every previously-tracked scan warning with the current set — called once at
@@ -624,6 +646,8 @@
     }
 
     function dismissNotification(id) {
+      const entry = notifications.find((n) => n.id === id);
+      if (entry && entry.timeoutId) clearTimeout(entry.timeoutId);
       notifications = notifications.filter((n) => n.id !== id);
       renderNotifCenter();
     }
@@ -631,8 +655,10 @@
     function renderNotifCenter() {
       const hasAny = notifications.length > 0;
       const hasErr = notifications.some((n) => n.kind === 'err');
+      const hasWarn = notifications.some((n) => n.kind === 'warn');
       notifBubble.hidden = !hasAny || notifExpanded;
-      notifBubble.classList.toggle('warn-only', hasAny && !hasErr);
+      notifBubble.classList.toggle('warn-only', hasAny && !hasErr && hasWarn);
+      notifBubble.classList.toggle('ok-only', hasAny && !hasErr && !hasWarn);
       notifBubbleCount.textContent = String(notifications.length);
       notifPanel.hidden = !(hasAny && notifExpanded);
       if (!hasAny) notifExpanded = false;
@@ -810,34 +836,152 @@
       return `${rgbHex.toLowerCase()}${alphaByte}`;
     }
 
-    /** The "Opacity" slider row placed under a color entry's light/dark <input type=color> (which
-     * has no alpha support of its own — see splitHexAlpha's comment). `onInput(alphaPct)` fires on
-     * every drag tick; the caller combines it with whatever the color picker currently holds via
-     * joinHexAlpha. Returns { row, input, setAlphaPct } so the caller can keep the slider in sync
-     * when the color entry changes out from under it (e.g. the dark toggle switching modes). */
-    function createAlphaRow(initialAlphaPct, onInput) {
-      const row = document.createElement('div');
-      row.className = 'color-alpha-row';
-      const input = document.createElement('input');
-      input.type = 'range';
-      input.min = '0';
-      input.max = '100';
-      input.step = '1';
-      input.value = String(initialAlphaPct);
-      input.title = 'Opacity';
-      const valueLabel = document.createElement('span');
-      valueLabel.className = 'alpha-value';
-      valueLabel.textContent = `${initialAlphaPct}%`;
-      function setAlphaPct(pct) {
-        input.value = String(pct);
-        valueLabel.textContent = `${pct}%`;
-      }
-      input.addEventListener('input', () => {
-        valueLabel.textContent = `${input.value}%`;
-        onInput(Number(input.value));
+    // Mirrors lib/asset-catalog-core.js's HEX_COLOR_PATTERN exactly — used to validate a
+    // hand-typed/pasted hex value client-side before ever sending it to the server, so a typo
+    // shows up immediately next to the field instead of as a generic request-failed toast.
+    const HEX_COLOR_PATTERN = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+    function isValidHexColor(value) {
+      return typeof value === 'string' && HEX_COLOR_PATTERN.test(value);
+    }
+
+    /** "#rrggbb" -> { r, g, b }, each 0-255. Only ever called with an already-6-digit hex (a
+     * splitHexAlpha result), so no shorthand/alpha handling needed here — that's splitHexAlpha's
+     * job, one layer up. */
+    function hexToRgb(rgbHex) {
+      const digits = rgbHex.replace('#', '');
+      return {
+        r: parseInt(digits.slice(0, 2), 16),
+        g: parseInt(digits.slice(2, 4), 16),
+        b: parseInt(digits.slice(4, 6), 16),
+      };
+    }
+
+    /** A single copy-to-clipboard line: a read-only text span plus a copy icon button — same
+     * building block as createPathRow's copy affordance, just for a color's rgba()/hex text
+     * instead of a filesystem path. Not an <input> — this is a plain representation of the
+     * current color, not a second place to edit it (that's the swatch/opacity control above). */
+    function createCopyableLine(initialText) {
+      const line = document.createElement('div');
+      line.className = 'color-copy-line';
+      const text = document.createElement('span');
+      text.className = 'color-copy-text';
+      text.textContent = initialText;
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'path-icon-btn';
+      copyBtn.innerHTML = COPY_ICON_SVG;
+      copyBtn.title = 'Copy';
+      copyBtn.addEventListener('click', async () => {
+        const ok = await copyToClipboard(text.textContent);
+        showToast(ok ? 'ok' : 'err', ok ? 'Copied to clipboard' : 'Could not copy to clipboard');
       });
-      row.append(input, valueLabel);
-      return { row, input, setAlphaPct };
+      line.append(text, copyBtn);
+      return { row: line, setText: (value) => { text.textContent = value; } };
+    }
+
+    /** A color entry's whole control: a native <input type=color> swatch (the one way to pick RGB
+     * visually), a hex text field right next to it (type or paste one directly — #rgb/#rgba/
+     * #rrggbb/#rrggbbaa all work, and an alpha in there also sets the opacity field), a percent
+     * opacity field (the only way to set alpha when NOT typing it into the hex field — the swatch
+     * itself has no alpha support whatsoever), and a plain read-only `rgba(r, g, b, a)` line below
+     * with its own copy button. `onCommit(hex)` fires with the combined hex string (server format,
+     * alpha suffix included when <100%) whenever the swatch, hex field, or opacity field changes.
+     * Returns { row, getHex, setHex, openPicker } — setHex re-syncs the swatch/hex/opacity/rgba
+     * line at once (e.g. the dark color starting out mirroring light) without itself calling
+     * onCommit, leaving that decision to the caller. */
+    function createColorPicker(initialHex, onCommit) {
+      const row = document.createElement('div');
+      row.className = 'color-picker-row';
+
+      const colorInput = document.createElement('input');
+      colorInput.type = 'color';
+      colorInput.className = 'color-picker-swatch';
+      colorInput.title = 'Pick a color — opacity is set separately, to the right';
+
+      const hexInput = document.createElement('input');
+      hexInput.type = 'text';
+      hexInput.className = 'color-picker-hex';
+      hexInput.spellcheck = false;
+      hexInput.placeholder = '#rrggbb';
+      hexInput.title = 'Type or paste a hex color — #rgb, #rgba, #rrggbb, or #rrggbbaa (alpha here also sets the opacity field)';
+
+      const alphaRow = document.createElement('div');
+      alphaRow.className = 'color-picker-alpha';
+      const alphaInput = document.createElement('input');
+      alphaInput.type = 'number';
+      alphaInput.min = '0';
+      alphaInput.max = '100';
+      alphaInput.step = '1';
+      alphaInput.title = 'Opacity';
+      const alphaSuffix = document.createElement('span');
+      alphaSuffix.textContent = '%';
+      alphaRow.append(alphaInput, alphaSuffix);
+
+      const topRow = document.createElement('div');
+      topRow.className = 'color-picker-top';
+      topRow.append(colorInput, hexInput, alphaRow);
+
+      const rgbaLine = createCopyableLine('');
+      row.append(topRow, rgbaLine.row);
+
+      function syncFrom(rgbHex, alphaPct) {
+        colorInput.value = rgbHex;
+        hexInput.value = rgbHex;
+        alphaInput.value = String(alphaPct);
+        const { r, g, b } = hexToRgb(rgbHex);
+        // Alpha as a 0-1 fraction, trimmed of trailing zeros (rgba()'s own convention — "1", not
+        // "1.00"; "0.5", not "0.50").
+        const alphaFraction = (alphaPct / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+        rgbaLine.setText(`rgba(${r}, ${g}, ${b}, ${alphaFraction})`);
+      }
+
+      const initial = splitHexAlpha(initialHex);
+      syncFrom(initial.rgbHex, initial.alphaPct);
+
+      function commit(rgbHex, alphaPct) {
+        syncFrom(rgbHex, alphaPct);
+        onCommit(joinHexAlpha(rgbHex, alphaPct));
+      }
+
+      colorInput.addEventListener('input', () => commit(colorInput.value, Number(alphaInput.value)));
+
+      alphaInput.addEventListener('input', () => {
+        const clamped = Math.max(0, Math.min(100, Math.round(Number(alphaInput.value))));
+        if (Number.isNaN(clamped)) return;
+        commit(colorInput.value, clamped);
+      });
+
+      // 'change' (commits on blur/Enter), not 'input' — a value typed character-by-character (or
+      // even a pasted one, briefly, before the browser finishes updating .value) is invalid for
+      // most of that process, so validating on every keystroke would flag it as an error while the
+      // user is still mid-edit/paste. Enter forces the blur immediately rather than waiting for the
+      // user to click elsewhere.
+      hexInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') hexInput.blur();
+      });
+      hexInput.addEventListener('change', () => {
+        const value = hexInput.value.trim();
+        if (!isValidHexColor(value)) {
+          showToast('err', `"${value}" isn't a valid hex color — use #rgb, #rgba, #rrggbb, or #rrggbbaa`);
+          syncFrom(colorInput.value, Number(alphaInput.value)); // revert the field to the last-known-good value
+          return;
+        }
+        const parsed = splitHexAlpha(value);
+        commit(parsed.rgbHex, parsed.alphaPct);
+      });
+
+      return {
+        row,
+        getHex: () => joinHexAlpha(colorInput.value, Number(alphaInput.value)),
+        setHex(hex) {
+          const parsed = splitHexAlpha(hex);
+          syncFrom(parsed.rgbHex, parsed.alphaPct);
+        },
+        // So a color's big preview swatch elsewhere on the page can forward a click straight into
+        // opening this cluster's native color-picker dialog — same "click the visualization box to
+        // trigger the real control" pattern as an image swatch forwarding to its Add/Replace button.
+        openPicker: () => colorInput.click(),
+      };
     }
 
     async function api(method, path, body) {
@@ -1148,7 +1292,10 @@
 
         const swatch = document.createElement('div');
         swatch.className = 'color-swatch';
-        swatch.style.backgroundColor = entry.light;
+        const swatchFill = document.createElement('div');
+        swatchFill.className = 'color-fill';
+        swatchFill.style.backgroundColor = entry.light;
+        swatch.appendChild(swatchFill);
         row.appendChild(swatch);
 
         const name = document.createElement('div');
@@ -1957,8 +2104,12 @@
       swatches.className = 'swatches';
 
       const lightSwatch = document.createElement('div');
-      lightSwatch.className = 'swatch color-preview';
-      lightSwatch.style.backgroundColor = entry.light;
+      lightSwatch.className = 'swatch color-preview light clickable';
+      lightSwatch.title = 'Click to change the light color';
+      const lightFill = document.createElement('div');
+      lightFill.className = 'color-fill';
+      lightFill.style.backgroundColor = entry.light;
+      lightSwatch.appendChild(lightFill);
       const lightLabel = document.createElement('div');
       lightLabel.className = 'swatch-label';
       lightLabel.textContent = 'light';
@@ -1966,8 +2117,16 @@
       swatches.appendChild(lightSwatch);
 
       const darkSwatch = document.createElement('div');
-      darkSwatch.className = 'swatch color-preview';
-      darkSwatch.style.backgroundColor = entry.dark;
+      darkSwatch.className = 'swatch color-preview dark clickable';
+      darkSwatch.title = 'Click to change the dark color';
+      // Hidden entirely (not just its input row below) while there's no dark override — showing a
+      // "dark" box that's secretly just the light color again is more confusing than showing
+      // nothing until "Use dark color" is actually turned on.
+      darkSwatch.style.display = entry.hasDarkOverride ? '' : 'none';
+      const darkFill = document.createElement('div');
+      darkFill.className = 'color-fill';
+      darkFill.style.backgroundColor = entry.dark;
+      darkSwatch.appendChild(darkFill);
       const darkLabel = document.createElement('div');
       darkLabel.className = 'swatch-label';
       darkLabel.textContent = 'dark';
@@ -1980,94 +2139,81 @@
       lightBlock.className = 'field-block';
       const lightPickerLabel = document.createElement('label');
       lightPickerLabel.textContent = 'Light color';
-      const lightSplit = splitHexAlpha(entry.light);
-      const lightInput = document.createElement('input');
-      lightInput.type = 'color';
-      lightInput.value = lightSplit.rgbHex;
-      async function updateLight() {
+      const lightPicker = createColorPicker(entry.light, async (hex) => {
         try {
-          const combined = joinHexAlpha(lightInput.value, Number(lightAlpha.input.value));
-          const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { light: combined });
+          const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { light: hex });
           applyResult(json);
           showToast('ok', `${entry.name}: light color updated`);
         } catch (err) {
           showToast('err', err.message);
         }
-      }
-      lightInput.addEventListener('input', updateLight);
-      const lightAlpha = createAlphaRow(lightSplit.alphaPct, updateLight);
-      lightBlock.append(lightPickerLabel, lightInput, lightAlpha.row);
+      });
+      lightBlock.append(lightPickerLabel, lightPicker.row);
       wrap.appendChild(lightBlock);
+      lightSwatch.addEventListener('click', () => lightPicker.openPicker());
 
       const darkBlock = document.createElement('div');
       darkBlock.className = 'field-block';
-      const darkToggleLabel = document.createElement('label');
-      darkToggleLabel.textContent = 'Dark color';
-      const darkToggle = document.createElement('select');
-      darkToggle.title = 'Same as light = no override, falls back to the light color everywhere. Custom = a distinct dark-mode value.';
-      for (const [value, label] of [['same', 'Same as light'], ['custom', 'Custom']]) {
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = label;
-        darkToggle.appendChild(opt);
-      }
-      // GET /api/colors always resolves `dark` to a real hex (defaulting to `light` when never
-      // set server-side) — there's no separate flag distinguishing "explicitly set equal to
-      // light" from "never set", so this infers the toggle's starting state from equality, same
-      // as the server itself treats the two as indistinguishable once stored.
-      const hasOverride = entry.dark !== entry.light;
-      darkToggle.value = hasOverride ? 'custom' : 'same';
+      const darkFieldLabel = document.createElement('label');
+      darkFieldLabel.textContent = 'Dark color';
+      darkBlock.appendChild(darkFieldLabel);
 
-      const darkSplit = splitHexAlpha(entry.dark);
-      const darkInput = document.createElement('input');
-      darkInput.type = 'color';
-      darkInput.value = darkSplit.rgbHex;
-      darkInput.style.display = hasOverride ? '' : 'none';
+      // An explicit on/off checkbox — clearer than an implicit "editing it detaches it from light"
+      // model, and clearer than a "reset" link that only appears once you already have an
+      // override. Off = no override (dark mirrors light, matching entry.hasDarkOverride === false,
+      // read straight from the server — see its own field comment for why this isn't inferred from
+      // entry.dark !== entry.light). On = the picker below holds a real, independent value.
+      const darkCheckboxRow = document.createElement('label');
+      darkCheckboxRow.className = 'checkbox-row';
+      darkCheckboxRow.title = 'Off = dark mode always mirrors the light color. On = set a distinct dark-mode value below.';
+      const darkCheckbox = document.createElement('input');
+      darkCheckbox.type = 'checkbox';
+      darkCheckbox.checked = entry.hasDarkOverride;
+      const darkCheckboxText = document.createElement('span');
+      darkCheckboxText.textContent = 'Use dark color';
+      darkCheckboxRow.append(darkCheckbox, darkCheckboxText);
+      darkBlock.appendChild(darkCheckboxRow);
 
-      async function updateDark() {
+      const darkPicker = createColorPicker(entry.dark, async (hex) => {
         try {
-          const combined = joinHexAlpha(darkInput.value, Number(darkAlpha.input.value));
-          const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: combined });
+          const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: hex });
           applyResult(json);
           showToast('ok', `${entry.name}: dark color updated`);
         } catch (err) {
           showToast('err', err.message);
         }
-      }
-      const darkAlpha = createAlphaRow(darkSplit.alphaPct, updateDark);
-      darkAlpha.row.style.display = hasOverride ? '' : 'none';
+      });
+      darkPicker.row.style.display = entry.hasDarkOverride ? '' : 'none';
+      darkBlock.appendChild(darkPicker.row);
 
-      darkToggle.addEventListener('change', async () => {
-        if (darkToggle.value === 'same') {
-          darkInput.style.display = 'none';
-          darkAlpha.row.style.display = 'none';
-          try {
+      async function setDarkOverrideEnabled(enabled) {
+        darkCheckbox.checked = enabled;
+        darkPicker.row.style.display = enabled ? '' : 'none';
+        darkSwatch.style.display = enabled ? '' : 'none';
+        try {
+          if (enabled) {
+            darkPicker.setHex(lightPicker.getHex());
+            const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: darkPicker.getHex() });
+            applyResult(json);
+            showToast('ok', `${entry.name}: dark color enabled`);
+          } else {
             const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: null });
             applyResult(json);
-            showToast('ok', `${entry.name}: dark cleared (same as light)`);
-          } catch (err) {
-            showToast('err', err.message);
+            showToast('ok', `${entry.name}: dark cleared (mirrors light)`);
           }
-        } else {
-          darkInput.style.display = '';
-          darkAlpha.row.style.display = '';
-          darkInput.value = lightInput.value;
-          darkAlpha.setAlphaPct(Number(lightAlpha.input.value));
-          try {
-            const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: joinHexAlpha(darkInput.value, Number(darkAlpha.input.value)) });
-            applyResult(json);
-            showToast('ok', `${entry.name}: dark color set`);
-          } catch (err) {
-            showToast('err', err.message);
-          }
+        } catch (err) {
+          showToast('err', err.message);
         }
-      });
-      darkInput.addEventListener('input', updateDark);
+      }
+      darkCheckbox.addEventListener('change', () => setDarkOverrideEnabled(darkCheckbox.checked));
+      // The box is only ever visible once "Use dark color" is on (see its own display toggle
+      // above), so a click here always means "open the picker", same as the light swatch.
+      darkSwatch.addEventListener('click', () => darkPicker.openPicker());
 
       const darkHelp = document.createElement('div');
       darkHelp.className = 'field-help';
-      darkHelp.textContent = 'Same as light = falls back to the light color everywhere. Custom = a distinct dark-mode value.';
-      darkBlock.append(darkToggleLabel, darkToggle, darkInput, darkAlpha.row, darkHelp);
+      darkHelp.textContent = 'Off = dark mode always mirrors the light color. On = set a distinct dark-mode value.';
+      darkBlock.appendChild(darkHelp);
       wrap.appendChild(darkBlock);
 
       wrap.appendChild(document.createElement('hr')).className = 'divider';
@@ -2119,39 +2265,42 @@
       lightBlock.className = 'field-block';
       const lightLabel = document.createElement('label');
       lightLabel.textContent = 'Light color (required)';
-      const lightInput = document.createElement('input');
-      lightInput.type = 'color';
-      lightInput.value = '#000000';
-      const lightAlpha = createAlphaRow(100, () => {});
-      lightBlock.append(lightLabel, lightInput, lightAlpha.row);
+      const lightPicker = createColorPicker('#000000', (hex) => {
+        // Keeps dark mirroring light live, same as an existing color with no override does — only
+        // while the checkbox below is off.
+        if (!darkCheckbox.checked) darkPicker.setHex(hex);
+      });
+      lightBlock.append(lightLabel, lightPicker.row);
       wrap.appendChild(lightBlock);
 
       const darkBlock = document.createElement('div');
       darkBlock.className = 'field-block';
-      const darkToggleLabel = document.createElement('label');
-      darkToggleLabel.textContent = 'Dark color';
-      const darkToggle = document.createElement('select');
-      for (const [value, label] of [['same', 'Same as light'], ['custom', 'Custom']]) {
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = label;
-        darkToggle.appendChild(opt);
-      }
-      const darkInput = document.createElement('input');
-      darkInput.type = 'color';
-      darkInput.value = '#ffffff';
-      darkInput.style.display = 'none';
-      const darkAlpha = createAlphaRow(100, () => {});
-      darkAlpha.row.style.display = 'none';
-      darkToggle.addEventListener('change', () => {
-        const isCustom = darkToggle.value === 'custom';
-        darkInput.style.display = isCustom ? '' : 'none';
-        darkAlpha.row.style.display = isCustom ? '' : 'none';
+      const darkLabel = document.createElement('label');
+      darkLabel.textContent = 'Dark color';
+      darkBlock.appendChild(darkLabel);
+
+      const darkCheckboxRow = document.createElement('label');
+      darkCheckboxRow.className = 'checkbox-row';
+      darkCheckboxRow.title = 'Off = dark mode mirrors the light color. On = set a distinct dark-mode value below.';
+      const darkCheckbox = document.createElement('input');
+      darkCheckbox.type = 'checkbox';
+      const darkCheckboxText = document.createElement('span');
+      darkCheckboxText.textContent = 'Use dark color';
+      darkCheckboxRow.append(darkCheckbox, darkCheckboxText);
+      darkBlock.appendChild(darkCheckboxRow);
+
+      const darkPicker = createColorPicker(lightPicker.getHex(), () => {});
+      darkPicker.row.style.display = 'none';
+      darkBlock.appendChild(darkPicker.row);
+      darkCheckbox.addEventListener('change', () => {
+        darkPicker.row.style.display = darkCheckbox.checked ? '' : 'none';
+        if (darkCheckbox.checked) darkPicker.setHex(lightPicker.getHex());
       });
+
       const darkHelp = document.createElement('div');
       darkHelp.className = 'field-help';
-      darkHelp.textContent = 'Optional — defaults to "same as light" if left as-is.';
-      darkBlock.append(darkToggleLabel, darkToggle, darkInput, darkAlpha.row, darkHelp);
+      darkHelp.textContent = 'Off = dark mode mirrors the light color. On = set a distinct dark-mode value.';
+      darkBlock.appendChild(darkHelp);
       wrap.appendChild(darkBlock);
 
       const actionsBlock = document.createElement('div');
@@ -2175,8 +2324,8 @@
       createBtn.addEventListener('click', async () => {
         const name = nameInput.value.trim();
         try {
-          const body = { name, light: joinHexAlpha(lightInput.value, Number(lightAlpha.input.value)) };
-          if (darkToggle.value === 'custom') body.dark = joinHexAlpha(darkInput.value, Number(darkAlpha.input.value));
+          const body = { name, light: lightPicker.getHex() };
+          if (darkCheckbox.checked) body.dark = darkPicker.getHex();
           const json = await api('POST', '/api/colors', body);
           selectedColor = name;
           applyResult(json);
