@@ -35,6 +35,8 @@
     --ok-bg: #e3f7e9;
     --err: #d70015;
     --err-bg: #ffe1df;
+    --warn: #9a5b00;
+    --warn-bg: #fff1d6;
     --control-bg: #e5e5ea;
     --control-bg-hover: #d1d1d6;
     --control-border: #c7c7cc;
@@ -53,6 +55,8 @@
       --ok-bg: rgba(52,199,89,0.15);
       --err: #ff453a;
       --err-bg: rgba(255,69,58,0.15);
+      --warn: #ffb340;
+      --warn-bg: rgba(255,179,64,0.15);
       --control-bg: #3a3a3c;
       --control-bg-hover: #48484a;
       --control-border: #48484a;
@@ -364,6 +368,80 @@
   }
   .toast.ok { display: block; background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok); }
   .toast.err { display: block; background: var(--err-bg); color: var(--err); border: 1px solid var(--err); }
+
+  /* Errors and scan warnings ("missing directory ...", "ignoring unrecognized file ...") don't
+     use .toast above — unlike a brief action confirmation, they can be long (a full filesystem
+     path) and need to stay visible until dealt with, so a full-width bar would permanently eat a
+     row of the page. Instead they collect here, in the otherwise-empty top-right corner of the
+     viewport: a small collapsed bubble (badge = count, red if any entry is an error, amber if
+     warnings only) that expands into a scrollable list on click. */
+  .notif-center {
+    position: fixed; top: 16px; right: 16px; z-index: 50;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  }
+  /* The [hidden] attribute's UA-default `display: none` loses to ANY author rule that sets
+     `display` on the same element, even without !important (author styles beat UA styles at
+     equal specificity) — so .notif-bubble/.notif-panel's own `display: flex` below silently
+     defeated `.hidden = true` and left both stacked on screen at once. Force it back with
+     !important, scoped to just these two so nothing else in the page is affected. */
+  #notifBubble[hidden], #notifPanel[hidden] { display: none !important; }
+  .notif-bubble {
+    position: relative;
+    width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: none; cursor: pointer; padding: 0;
+    background: var(--err); color: #fff;
+    font-size: 15px; font-weight: 700; line-height: 1;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  }
+  .notif-bubble.warn-only { background: var(--warn); }
+  .notif-bubble .notif-bubble-count {
+    position: absolute; top: -5px; right: -5px;
+    background: var(--panel); border: 1.5px solid currentColor;
+    border-radius: 999px; font-size: 10px; font-weight: 700;
+    min-width: 16px; height: 16px; padding: 0 3px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* Explicit per-kind color instead of `color: inherit` — inherit picked up the bubble's own
+     white text color, rendering white-on-(near-)white and making the count unreadable. */
+  .notif-bubble .notif-bubble-count { color: var(--err); }
+  .notif-bubble.warn-only .notif-bubble-count { color: var(--warn); }
+  .notif-panel {
+    width: 360px; max-width: calc(100vw - 32px);
+    max-height: min(70vh, 520px);
+    display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,0.3);
+    overflow: hidden;
+  }
+  .notif-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--panel-border);
+    font-size: 12px; font-weight: 600; color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .notif-panel-header button {
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-size: 13px; padding: 4px 8px; border-radius: 4px;
+  }
+  .notif-panel-header button:hover { background: var(--control-bg-hover); color: var(--text); }
+  .notif-list { overflow-y: auto; }
+  .notif-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 9px 8px 9px 12px; font-size: 12px; line-height: 1.5;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .notif-item:last-child { border-bottom: none; }
+  .notif-item .notif-message { flex: 1; }
+  .notif-item.err { background: var(--err-bg); color: var(--err); }
+  .notif-item.warn { background: var(--warn-bg); color: var(--warn); }
+  .notif-item .notif-dismiss {
+    background: none; border: none; cursor: pointer; color: inherit; opacity: 0.6;
+    font-size: 13px; flex-shrink: 0; padding: 0 2px; line-height: 1.5;
+  }
+  .notif-item .notif-dismiss:hover { opacity: 1; }
+  .notif-empty { padding: 14px 12px; font-size: 12px; color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -393,11 +471,29 @@
     <main id="detail" class="detail"></main>
   </div>
   <div id="toast" class="toast"></div>
+  <div id="notifCenter" class="notif-center">
+    <button id="notifBubble" class="notif-bubble" type="button" title="Show messages" hidden>
+      <span aria-hidden="true">!</span>
+      <span id="notifBubbleCount" class="notif-bubble-count"></span>
+    </button>
+    <div id="notifPanel" class="notif-panel" hidden>
+      <div class="notif-panel-header">
+        <span>Messages</span>
+        <button id="notifCollapseBtn" type="button" title="Collapse">Collapse</button>
+      </div>
+      <div id="notifList" class="notif-list"></div>
+    </div>
+  </div>
 
   <script>
     const listEl = document.getElementById('list');
     const detailEl = document.getElementById('detail');
     const toastEl = document.getElementById('toast');
+    const notifBubble = document.getElementById('notifBubble');
+    const notifBubbleCount = document.getElementById('notifBubbleCount');
+    const notifPanel = document.getElementById('notifPanel');
+    const notifCollapseBtn = document.getElementById('notifCollapseBtn');
+    const notifList = document.getElementById('notifList');
     const undoButton = document.getElementById('undoButton');
     const addButton = document.getElementById('addButton');
     const filterInput = document.getElementById('filterInput');
@@ -480,7 +576,26 @@
       renderList();
     });
 
+    // Two separate notification mechanisms, by design:
+    //  - .toast (showToast('ok', ...)) — a brief action confirmation ("light image replaced").
+    //    Short-lived by nature, replaced by the next one, fine as a transient full-width bar.
+    //  - the notif center below (showToast('err', ...) and setScanWarnings()) — errors and scan
+    //    warnings, which can be long (a full filesystem path) and need to stay visible until the
+    //    user deals with them, so they collect in the top-right corner instead of permanently
+    //    eating a row of the page. `source: 'scan'` entries are wholesale replaced every time
+    //    setScanWarnings() runs (once at startup and after every mutation, via applyResult) so a
+    //    resolved warning disappears on its own; `source: 'action'` entries (one-off failures) are
+    //    appended and stick around until individually dismissed.
+    let notifications = [];
+    let notifNextId = 1;
+    let notifExpanded = false;
+
     function showToast(kind, message) {
+      if (kind === 'err') {
+        notifications.push({ id: notifNextId++, kind: 'err', source: 'action', message });
+        renderNotifCenter();
+        return;
+      }
       toastEl.className = 'toast ' + kind;
       toastEl.textContent = message;
     }
@@ -488,6 +603,60 @@
       toastEl.className = 'toast';
       toastEl.textContent = '';
     }
+
+    /** Replaces every previously-tracked scan warning with the current set — called once at
+     * startup and after every mutation (see applyResult), so a warning that no longer applies
+     * (e.g. the unrecognized file got removed) disappears on its own instead of needing a manual
+     * dismiss. Action-error entries (source: 'action') are left untouched. */
+    function setScanWarnings(warnings) {
+      notifications = notifications.filter((n) => n.source !== 'scan');
+      for (const message of warnings) {
+        notifications.push({ id: notifNextId++, kind: 'warn', source: 'scan', message });
+      }
+      renderNotifCenter();
+    }
+
+    function dismissNotification(id) {
+      notifications = notifications.filter((n) => n.id !== id);
+      renderNotifCenter();
+    }
+
+    function renderNotifCenter() {
+      const hasAny = notifications.length > 0;
+      const hasErr = notifications.some((n) => n.kind === 'err');
+      notifBubble.hidden = !hasAny || notifExpanded;
+      notifBubble.classList.toggle('warn-only', hasAny && !hasErr);
+      notifBubbleCount.textContent = String(notifications.length);
+      notifPanel.hidden = !(hasAny && notifExpanded);
+      if (!hasAny) notifExpanded = false;
+
+      notifList.innerHTML = '';
+      if (!hasAny) return;
+      for (const n of notifications) {
+        const item = document.createElement('div');
+        item.className = 'notif-item ' + n.kind;
+        const message = document.createElement('span');
+        message.className = 'notif-message';
+        message.textContent = n.message;
+        const dismissBtn = document.createElement('button');
+        dismissBtn.type = 'button';
+        dismissBtn.className = 'notif-dismiss';
+        dismissBtn.textContent = '×';
+        dismissBtn.title = 'Dismiss';
+        dismissBtn.addEventListener('click', () => dismissNotification(n.id));
+        item.append(message, dismissBtn);
+        notifList.appendChild(item);
+      }
+    }
+
+    notifBubble.addEventListener('click', () => {
+      notifExpanded = true;
+      renderNotifCenter();
+    });
+    notifCollapseBtn.addEventListener('click', () => {
+      notifExpanded = false;
+      renderNotifCenter();
+    });
 
     function fileToBase64(file) {
       return new Promise((resolve, reject) => {
@@ -689,6 +858,7 @@
       nextUndoLabel = json.nextUndoLabel || null;
       undoButton.disabled = undoCount === 0;
       undoButton.title = nextUndoLabel ? `Undo: ${nextUndoLabel} (Ctrl/Cmd+Z)` : 'Nothing to undo';
+      setScanWarnings([...(json.warnings || []), ...(json.colorWarnings || []), ...(json.appIconWarnings || [])]);
       // If the selected entry no longer exists (e.g. it was deleted, or its create was undone),
       // fall back to no selection rather than showing a detail view for a ghost entry — checked
       // independently for each catalog's own selection.
@@ -706,9 +876,6 @@
       try {
         const json = await api('GET', '/api/images');
         applyResult(json);
-        const warnings = [...(json.warnings || []), ...(json.colorWarnings || []), ...(json.appIconWarnings || [])];
-        if (warnings.length) showToast('ok', warnings.join('; '));
-        else clearToast();
       } catch (err) {
         showToast('err', err.message);
       }
@@ -1115,14 +1282,19 @@
       wireClickToUpload(lightSwatch, lightDensityRow.baseButton);
 
       const darkSwatch = document.createElement('div');
-      darkSwatch.className = 'swatch dark';
-      if (entry.hasDark) {
+      darkSwatch.className = 'swatch dark droppable';
+      if (entry.hasDark && entry.mode === 'template') {
+        darkSwatch.title = 'Dedicated dark-mode mask — tinted the same as the light one (e.g. a moon shape instead of a sun)';
+        // Same per-image override rule as the light swatch above — the real dark asset gets
+        // masked/tinted exactly as useImage() renders it at runtime, not shown as flat art.
+        darkSwatch.appendChild(maskedImage(imgSrcForFile(entry.name, entry.darkSource), entry.tint ? entry.tint.dark : 'var(--tint-dark)'));
+      } else if (entry.hasDark) {
         darkSwatch.title = 'Dedicated dark-mode asset';
         const darkImg = document.createElement('img');
         darkImg.src = imgSrcForFile(entry.name, entry.darkSource);
         darkSwatch.appendChild(darkImg);
       } else if (entry.mode === 'template') {
-        darkSwatch.title = 'No dark-mode asset needed — tinting handles dark mode, via the real hooks/_assetCatalogColorPrimaryTint.js color for \'dark\'.';
+        darkSwatch.title = 'No dark-mode asset yet — falls back to re-tinting the light mask for dark mode.';
         // Same per-image override rule as the light swatch above.
         darkSwatch.appendChild(maskedImage(imgSrcForFile(entry.name, entry.lightSource), entry.tint ? entry.tint.dark : 'var(--tint-dark)'));
       } else {
@@ -1135,28 +1307,26 @@
         note.textContent = 'no dark asset';
         darkSwatch.appendChild(note);
       }
+      darkSwatch.title += ' — click or drop a PNG here to ' + (entry.hasDark ? 'replace it' : 'add one');
       const darkLabel = document.createElement('div');
       darkLabel.className = 'swatch-label';
       darkLabel.textContent = 'dark';
       darkSwatch.appendChild(darkLabel);
       swatches.appendChild(darkSwatch);
-      // Template images don't hold a real dark-mode asset (tinting covers dark mode) — only an
-      // 'original' image's dark swatch is a real, droppable slot.
-      if (entry.mode === 'original') {
-        darkSwatch.classList.add('droppable');
-        darkSwatch.title += ' — click or drop a PNG here to ' + (entry.hasDark ? 'replace it' : 'add one');
-        wireDropZone(darkSwatch, async (files) => {
-          try {
-            const dark = await fileToBase64(files[0]);
-            const json = await api('PUT', `/api/images/${encodeURIComponent(entry.name)}`, { dark });
-            applyResult(json);
-            showToast('ok', `${entry.name}: dark image ${entry.hasDark ? 'replaced' : 'added'}`);
-          } catch (err) {
-            showToast('err', err.message);
-          }
-        });
-        wireClickToUpload(darkSwatch, darkDensityRow.baseButton);
-      }
+      // A dark asset is meaningful for both modes now — 'template' uses it (tinted) instead of
+      // re-tinting the light one when present, 'original' swaps it in as-is — so both wire up the
+      // same drop/click upload.
+      wireDropZone(darkSwatch, async (files) => {
+        try {
+          const dark = await fileToBase64(files[0]);
+          const json = await api('PUT', `/api/images/${encodeURIComponent(entry.name)}`, { dark });
+          applyResult(json);
+          showToast('ok', `${entry.name}: dark image ${entry.hasDark ? 'replaced' : 'added'}`);
+        } catch (err) {
+          showToast('err', err.message);
+        }
+      });
+      wireClickToUpload(darkSwatch, darkDensityRow.baseButton);
 
       wrap.appendChild(swatches);
 
@@ -1690,7 +1860,7 @@
       wrap.appendChild(newFileFields(
         'dark',
         'Dark appearance (optional)',
-        'Only meaningful for "original" — a "template" image is tinted instead, it never needs this.',
+        'Optional either way — "original" swaps it in as-is; "template" tints it the same as the light one (e.g. a moon-shaped mask instead of a sun), and falls back to re-tinting the light asset when this is left empty.',
       ));
 
       const actionsBlock = document.createElement('div');

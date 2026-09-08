@@ -21,6 +21,9 @@ assets/images/drawer-home/
 ```
 
 - `template` — a single-color mask, tinted at runtime (the common case: nav images, chevrons).
+  Optionally swaps in a real dark-mode asset too — e.g. a sun-shaped mask for light, a moon-shaped
+  one for dark — still tinted the same as any `template` image; falls back to re-tinting the light
+  asset when no dark one is provided.
 - `original` — non-tintable multi-color art (a logo, a photo-style image), optionally with a real
   dark-mode asset swapped in for dark mode.
 
@@ -67,10 +70,14 @@ of an image with just a base image — it has no effect on disk, isn't per-image
 across a page reload (defaults to hidden every time you open the editor).
 
 `config.json` is optional: a folder with just a light appearance infers `template`; one with both
-light and dark appearances infers `original` (a dark asset only makes sense for non-tintable art —
-a `template` image never needs one, tinting covers both themes). Whenever it's missing,
-`generate-asset-catalog.js` writes it back to disk with the inferred mode the first time it's
-generated, so a folder becomes self-documenting rather than silently re-guessing forever.
+light and dark appearances infers `original` — a conservative default, since an inferred mode has
+no way to know whether the dark file is meant as its own distinct asset or just needs the same
+tinting the light one gets. (`template` images do use a dark asset when one exists too — e.g. a
+sun-shaped mask for light mode, a moon-shaped one for dark, each still tinted the same as
+`template` always is — set `"mode": "template"` explicitly in `config.json` if that's what you
+want instead of the inferred `original`.) Whenever `config.json` is missing, `generate-asset-catalog.js` writes it back
+to disk with the inferred mode the first time it's generated, so a folder becomes self-documenting
+rather than silently re-guessing forever.
 
 A `template` image can also carry a per-image tint override in its `config.json`:
 
