@@ -379,3 +379,8 @@ theme/appearance system instead of importing from `hooks/` — that keeps this b
 change shape later without you having to hunt down unrelated call sites across the app. Each
 generated file repeats this same warning at the top for anyone who opens it later without having
 read this README.
+
+## License
+
+[MIT](LICENSE) — use it, modify it, embed it in whatever you want, including closed-source or
+commercial projects. No warranty either way.
