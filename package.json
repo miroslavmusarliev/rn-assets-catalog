@@ -1,6 +1,6 @@
 {
   "name": "rn-assets-catalog",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Zero-config image/color/app-icon asset catalog + local browser editor for React Native/Expo projects. Scans assets/images, assets/colors, and assets/app-icon and generates typed catalogs consumed via useImage()/useColor().",
   "private": true,
   "license": "MIT",
