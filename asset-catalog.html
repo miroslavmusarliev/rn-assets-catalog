@@ -104,26 +104,33 @@
   }
   .sidebar-title { font-weight: 600; font-size: 14px; }
   .sidebar-subtitle { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
-  /* Images/Colors switch — a segmented control in the same visual language as a selected
-     .list-item (var(--select) fill, white text) rather than introducing a new selection color. */
+  /* Images/Colors switch — a segmented "track" (padded background, no outer border and no
+     dividers between segments) in the same visual language as a selected .list-item (var(--select)
+     fill, white text) rather than introducing a new selection color. Previously this had a 1px
+     outer border plus a 1px divider between every pair of segments — the divider immediately next
+     to the active (blue-filled) segment read as a stray line cutting across the fill, since it
+     belonged to the *other* segment and didn't share the active one's color. Simplest fix: no
+     border-drawn lines at all — segments are separated by the track's own padding/gap instead, the
+     same way iOS/macOS segmented controls avoid this exact seam. */
   .tab-switch {
     display: flex;
-    border: 1px solid var(--control-border);
-    border-radius: 6px;
-    overflow: hidden;
+    gap: 2px;
+    background: var(--control-bg);
+    border-radius: 7px;
+    padding: 2px;
   }
   .tab-btn {
     flex: 1;
     font: inherit;
     font-weight: 600;
     font-size: 12px;
-    background: var(--control-bg);
+    background: transparent;
     color: var(--text);
     border: none;
+    border-radius: 5px;
     padding: 5px 12px;
     cursor: pointer;
   }
-  .tab-btn + .tab-btn { border-left: 1px solid var(--control-border); }
   .tab-btn:hover { background: var(--control-bg-hover); }
   .tab-btn.active { background: var(--select); color: #fff; }
   #undoButton {
@@ -454,7 +461,7 @@
             <button type="button" class="tab-btn" data-tab="colors">Colors</button>
             <button type="button" class="tab-btn" data-tab="app">App</button>
           </div>
-          <div id="sidebarSubtitle" class="sidebar-subtitle">assets/images/</div>
+          <div id="sidebarSubtitle" class="sidebar-subtitle"></div>
         </div>
         <button id="undoButton" type="button" title="Ctrl/Cmd+Z">Undo</button>
       </div>
@@ -903,6 +910,20 @@
       renderList();
     });
 
+    // The sidebar subtitle ("assets/images/" etc.) is a real, revealable directory — same
+    // copy/reveal-in-Finder treatment as any other path row in the detail views (see
+    // createPathRow), just for the catalog's own top-level folder instead of one file in it.
+    function updateSidebarSubtitle() {
+      const dirName = activeTab === 'images' ? 'images' : activeTab === 'colors' ? 'colors' : 'app-icon';
+      sidebarSubtitleEl.innerHTML = '';
+      sidebarSubtitleEl.appendChild(createPathRow(`${dirName}/`, { kind: 'dir', name: dirName }));
+    }
+    // NOT called here yet — createPathRow (defined much further down) reads COPY_ICON_SVG/
+    // REVEAL_ICON_SVG, both `const`, so calling this before those declarations run would throw
+    // (TDZ), which — left uncaught at this top level — aborted the rest of the script, including
+    // the tab-click-listener loop right below. Called instead at the bottom of the script
+    // alongside refresh(), once everything is defined.
+
     // Images/Colors tab switch — swaps which catalog the sidebar list and detail pane show. Both
     // catalogs are always kept current under the hood (see applyResult()), so switching tabs
     // never shows stale data even if the other catalog was mutated while it wasn't visible.
@@ -911,8 +932,7 @@
         if (btn.dataset.tab === activeTab) return;
         activeTab = btn.dataset.tab;
         for (const b of tabButtons) b.classList.toggle('active', b === btn);
-        sidebarSubtitleEl.textContent =
-          activeTab === 'images' ? 'assets/images/' : activeTab === 'colors' ? 'assets/colors/' : 'assets/app-icon/';
+        updateSidebarSubtitle();
         addButton.title = activeTab === 'images' ? 'New image' : 'New color';
         // The app icon is a fixed set of 3 platforms, not a user-creatable/filterable named
         // collection — hide the "new entry" and filter controls entirely while its tab is active.
@@ -2396,6 +2416,7 @@
       return block;
     }
 
+    updateSidebarSubtitle();
     renderDetail();
     refresh();
   </script>

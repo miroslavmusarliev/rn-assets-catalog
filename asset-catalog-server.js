@@ -625,26 +625,30 @@ async function handleUndo(req, res) {
   sendJson(res, 200, withUndoMeta({ ...regenerate(), undone: entry.label }));
 }
 
-/** Best-effort "reveal in Finder/Explorer" for one physical file — spawns the OS's own file
- * manager pointed at it, mirroring what right-click > "Reveal in Finder" does in Xcode's asset
- * catalog. macOS's `open -R` and Windows' `explorer.exe /select,` both open the containing folder
- * WITH the file pre-selected; there's no equivalent single command across Linux file managers, so
- * this just opens the containing folder there via `xdg-open` (nothing to select). Never rejects on
- * a non-zero exit code — explorer.exe in particular is known to return a nonzero code on success —
- * only a missing binary (ENOENT) surfaces as a real error. */
-function revealInFileExplorer(absPath) {
+/** Best-effort "reveal in Finder/Explorer" — spawns the OS's own file manager pointed at
+ * `absPath`, mirroring what right-click > "Reveal in Finder" does in Xcode's asset catalog.
+ * `selectInParent` (the default) opens the CONTAINING folder with `absPath` itself pre-selected —
+ * what you want for a single file (macOS's `open -R`, Windows' `explorer.exe /select,`). Passing
+ * `selectInParent: false` instead opens `absPath` itself as a folder to browse — what you want for
+ * a directory path like assets/images/ (there's nothing to "select" one level up; you want to be
+ * inside it). There's no equivalent single command across Linux file managers for the
+ * select-in-parent case, so that branch just opens the containing folder there via `xdg-open`
+ * (nothing pre-selected). Never rejects on a non-zero exit code — explorer.exe in particular is
+ * known to return a nonzero code on success — only a missing binary (ENOENT) surfaces as a real
+ * error. */
+function revealInFileExplorer(absPath, { selectInParent = true } = {}) {
   return new Promise((resolve, reject) => {
     let cmd;
     let args;
     if (process.platform === "darwin") {
       cmd = "open";
-      args = ["-R", absPath];
+      args = selectInParent ? ["-R", absPath] : [absPath];
     } else if (process.platform === "win32") {
       cmd = "explorer.exe";
-      args = [`/select,${absPath}`];
+      args = selectInParent ? [`/select,${absPath}`] : [absPath];
     } else {
       cmd = "xdg-open";
-      args = [path.dirname(absPath)];
+      args = [selectInParent ? path.dirname(absPath) : absPath];
     }
     execFile(cmd, args, (err) => {
       if (err && err.code === "ENOENT") {
@@ -656,38 +660,50 @@ function revealInFileExplorer(absPath) {
   });
 }
 
-/** Resolves one of body.{image,app-icon} into the real absolute path of an already-existing
- * physical file, reusing the exact same name/filename validation serveImageFile/serveAppIconFile
- * use (so a request can't escape its recognized directory) — the one addition here is confirming
- * the file is actually present on disk, since revealing a nonexistent file makes no sense (unlike
- * the GET routes, which 404 in that case; here it's a plain validation error instead). Colors have
- * no physical per-file path to reveal (a color.json isn't shown/managed as a file in the editor
- * the way an image/app-icon slot is), so there's no "color" kind here. */
+// The fixed set of top-level catalog directories the sidebar's "assets/<x>/" subtitle can reveal
+// — a closed list (not a user-suppliable path) so there's nothing to validate beyond membership.
+const REVEALABLE_DIRS = { images: imagesDir, colors: colorsDir, "app-icon": appIconDir };
+
+/** Resolves one of body.{image,app-icon,dir} into `{ absPath, selectInParent }` for an
+ * already-existing physical file or directory, reusing the exact same name/filename validation
+ * serveImageFile/serveAppIconFile use for the first two (so a request can't escape its recognized
+ * directory) — the one addition here is confirming the target is actually present on disk, since
+ * revealing something nonexistent makes no sense (unlike the GET routes, which 404 in that case;
+ * here it's a plain validation error instead). Colors have no physical per-file path to reveal (a
+ * color.json isn't shown/managed as a file in the editor the way an image/app-icon slot is), so
+ * there's no "color" kind here — only "dir" for assets/colors/ itself. */
 function resolveRevealTarget(body) {
   if (body.kind === "image") {
     const dir = resolveImageDir(imagesDir, body.name);
     if (!parseSlotFilename(body.name, body.filename)) {
       throw new AssetCatalogError("invalid image file");
     }
-    return path.join(dir, body.filename);
+    return { absPath: path.join(dir, body.filename), selectInParent: true };
   }
   if (body.kind === "app-icon") {
     const dir = resolveAppIconPlatformDir(appIconDir, body.platform);
     if (!isAppIconSlot(body.platform, body.slot) || appIconSlotFilename(body.platform, body.slot) !== body.filename) {
       throw new AssetCatalogError("invalid app-icon file");
     }
-    return path.join(dir, body.filename);
+    return { absPath: path.join(dir, body.filename), selectInParent: true };
   }
-  throw new AssetCatalogError('"kind" must be "image" or "app-icon"');
+  if (body.kind === "dir") {
+    const dir = REVEALABLE_DIRS[body.name];
+    if (!dir) {
+      throw new AssetCatalogError('"name" must be "images", "colors", or "app-icon"');
+    }
+    return { absPath: dir, selectInParent: false };
+  }
+  throw new AssetCatalogError('"kind" must be "image", "app-icon", or "dir"');
 }
 
 async function handleReveal(req, res) {
   const body = await readJsonBody(req);
-  const absPath = resolveRevealTarget(body);
+  const { absPath, selectInParent } = resolveRevealTarget(body);
   if (!fs.existsSync(absPath)) {
-    throw new AssetCatalogError("file does not exist");
+    throw new AssetCatalogError("path does not exist");
   }
-  await revealInFileExplorer(absPath);
+  await revealInFileExplorer(absPath, { selectInParent });
   sendJson(res, 200, { revealed: true });
 }
 
