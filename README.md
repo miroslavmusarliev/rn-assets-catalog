@@ -128,6 +128,12 @@ no mode inference here (nothing to infer from — it's not an image), so a color
 always required, hand-written or (far more commonly) created through the browser editor's "+ New
 Color" flow, which is just writing this one small file.
 
+Either hex value may carry an alpha channel — 4-digit (`#rgba`) or 8-digit (`#rrggbbaa`) shorthand
+works exactly like 3-/6-digit opaque hex everywhere a color is accepted. The browser editor exposes
+this as an "Opacity" slider next to each light/dark color picker (since `<input type=color>` itself
+has no alpha support), and shows a checkerboard behind translucent swatches so partial transparency
+is visible at a glance.
+
 Regenerating produces `assets/color-catalog.generated.ts` (a typed `ColorName` union + a `Record`
 of `{ light, dark }` pairs), consumed via `useColor(name)` (see Setup below — this is exported
 from your project's own auto-scaffolded `assets/index.ts`, alongside `useImage`):

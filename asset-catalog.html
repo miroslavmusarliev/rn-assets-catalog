@@ -156,6 +156,8 @@
   .list-item .color-swatch {
     width: 18px; height: 18px; flex-shrink: 0; border-radius: 4px;
     border: 1px solid var(--panel-border);
+    background-image: repeating-conic-gradient(#8888 0% 25%, transparent 0% 50%);
+    background-size: 8px 8px;
   }
   .list-item .name { overflow: hidden; text-overflow: ellipsis; flex: 1; }
   .list-item .mode-dot {
@@ -251,7 +253,19 @@
   }
   .swatch.light { background: var(--swatch-light); }
   .swatch.dark { background: var(--swatch-dark); }
+  /* A color-catalog entry's swatch (unlike an image preview's) shows the color itself, which may
+     carry alpha — the checkerboard shows through however translucent the color is, same idea as
+     Photoshop/Figma's transparency grid. Set via background-color (not background), so this
+     background-image survives. */
+  .swatch.color-preview {
+    background-image: repeating-conic-gradient(#8888 0% 25%, transparent 0% 50%);
+    background-size: 16px 16px;
+  }
+  .color-alpha-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .color-alpha-row input[type="range"] { flex: 1; }
+  .color-alpha-row .alpha-value { font-size: 11px; color: var(--text-dim); min-width: 34px; text-align: right; }
   .swatch.droppable { cursor: copy; }
+  .swatch.clickable:hover { outline: 2px solid var(--select); outline-offset: -2px; }
   .swatch.drag-over { outline: 2px dashed var(--select); outline-offset: -2px; }
   .swatch img { width: 56px; height: 56px; object-fit: contain; }
   .swatch .masked-image { width: 56px; height: 56px; }
@@ -284,6 +298,37 @@
   .density-variants { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .density-custom { display: inline-flex; align-items: center; gap: 6px; }
   .density-custom-input { width: 52px; padding: 7px 6px; text-align: center; }
+
+  .path-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+  }
+  .path-row .path-text {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    padding: 2px 0;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 260px;
+  }
+  .path-row .path-text:hover { color: var(--text); text-decoration: underline; }
+  .path-row .path-icon-btn {
+    width: 18px; height: 18px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: none; padding: 0;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .path-row .path-icon-btn:hover { background: var(--control-bg-hover); color: var(--text); }
+  .path-row .path-icon-btn svg { width: 12px; height: 12px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   select, button, input[type="text"] {
     font: inherit;
@@ -496,6 +541,15 @@
       });
     }
 
+    /** Makes an asset-preview box (a swatch) clickable to open the same Add/Replace file picker as
+     * the `fileButton`-wrapped control already sitting next to it — forwards the click straight
+     * to that button's own click handling (see fileButton's `triggerClick`) rather than wiring up
+     * a second, separate upload path for the same slot. */
+    function wireClickToUpload(el, buttonWrapper) {
+      el.classList.add('clickable');
+      el.addEventListener('click', () => buttonWrapper.triggerClick());
+    }
+
     function slugify(str) {
       const slug = str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
       return slug || 'new-image';
@@ -547,6 +601,67 @@
       let i = 2;
       while (entries.some((e) => e.name === `${base}-${i}`)) i++;
       return `${base}-${i}`;
+    }
+
+    /** Splits any hex color the server accepts (#rgb, #rgba, #rrggbb, #rrggbbaa) into a 6-digit
+     * "#rrggbb" (the only shape <input type=color> understands — it has no alpha support at all)
+     * plus an opacity percentage 0-100, expanding shorthand nibbles the way CSS does. Absent alpha
+     * (6/3-digit forms) reads as fully opaque. */
+    function splitHexAlpha(hex) {
+      const digits = hex.replace('#', '');
+      let r, g, b, a = 'ff';
+      if (digits.length === 3 || digits.length === 4) {
+        r = digits[0] + digits[0];
+        g = digits[1] + digits[1];
+        b = digits[2] + digits[2];
+        if (digits.length === 4) a = digits[3] + digits[3];
+      } else {
+        r = digits.slice(0, 2);
+        g = digits.slice(2, 4);
+        b = digits.slice(4, 6);
+        if (digits.length === 8) a = digits.slice(6, 8);
+      }
+      return { rgbHex: `#${r}${g}${b}`.toLowerCase(), alphaPct: Math.round((parseInt(a, 16) / 255) * 100) };
+    }
+
+    /** Inverse of splitHexAlpha — recombines a 6-digit "#rrggbb" and an 0-100 opacity percentage
+     * back into the hex string sent to the server. Fully opaque stays a plain 6-digit hex (matches
+     * what every existing color.json already looks like) rather than always appending "ff". */
+    function joinHexAlpha(rgbHex, alphaPct) {
+      const clamped = Math.max(0, Math.min(100, Math.round(alphaPct)));
+      if (clamped >= 100) return rgbHex.toLowerCase();
+      const alphaByte = Math.round((clamped / 100) * 255).toString(16).padStart(2, '0');
+      return `${rgbHex.toLowerCase()}${alphaByte}`;
+    }
+
+    /** The "Opacity" slider row placed under a color entry's light/dark <input type=color> (which
+     * has no alpha support of its own — see splitHexAlpha's comment). `onInput(alphaPct)` fires on
+     * every drag tick; the caller combines it with whatever the color picker currently holds via
+     * joinHexAlpha. Returns { row, input, setAlphaPct } so the caller can keep the slider in sync
+     * when the color entry changes out from under it (e.g. the dark toggle switching modes). */
+    function createAlphaRow(initialAlphaPct, onInput) {
+      const row = document.createElement('div');
+      row.className = 'color-alpha-row';
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = '0';
+      input.max = '100';
+      input.step = '1';
+      input.value = String(initialAlphaPct);
+      input.title = 'Opacity';
+      const valueLabel = document.createElement('span');
+      valueLabel.className = 'alpha-value';
+      valueLabel.textContent = `${initialAlphaPct}%`;
+      function setAlphaPct(pct) {
+        input.value = String(pct);
+        valueLabel.textContent = `${pct}%`;
+      }
+      input.addEventListener('input', () => {
+        valueLabel.textContent = `${input.value}%`;
+        onInput(Number(input.value));
+      });
+      row.append(input, valueLabel);
+      return { row, input, setAlphaPct };
     }
 
     async function api(method, path, body) {
@@ -636,6 +751,8 @@
         // collection — hide the "new entry" and filter controls entirely while its tab is active.
         addButton.style.display = activeTab === 'app' ? 'none' : '';
         filterInput.style.display = activeTab === 'app' ? 'none' : '';
+        // Density variants (@2x/@3x/etc.) only exist on images — hide the toggle for Colors/App.
+        densityToggle.parentElement.style.display = activeTab === 'images' ? '' : 'none';
         filterInput.value = '';
         filterText = '';
         renderList();
@@ -844,7 +961,7 @@
 
         const swatch = document.createElement('div');
         swatch.className = 'color-swatch';
-        swatch.style.background = entry.light;
+        swatch.style.backgroundColor = entry.light;
         row.appendChild(swatch);
 
         const name = document.createElement('div');
@@ -961,12 +1078,17 @@
       header.append(nameEl, badge);
       wrap.appendChild(header);
 
+      // Built up front (not where they're appended, further down) so the swatch previews below can
+      // forward a click straight into each base (1x) file's own Add/Replace button.
+      const lightDensityRow = densityRow(entry, 'light');
+      const darkDensityRow = densityRow(entry, 'dark');
+
       const swatches = document.createElement('div');
       swatches.className = 'swatches';
 
       const lightSwatch = document.createElement('div');
       lightSwatch.className = 'swatch light droppable';
-      lightSwatch.title = 'How this image renders in light mode — drop a PNG here to replace it';
+      lightSwatch.title = 'How this image renders in light mode — click or drop a PNG here to replace it';
       if (entry.mode === 'template') {
         // A per-image tint override (entry.tint) wins over the app-wide --tint-light fallback.
         lightSwatch.appendChild(maskedImage(imgSrcForFile(entry.name, entry.lightSource), entry.tint ? entry.tint.light : 'var(--tint-light)'));
@@ -990,6 +1112,7 @@
           showToast('err', err.message);
         }
       });
+      wireClickToUpload(lightSwatch, lightDensityRow.baseButton);
 
       const darkSwatch = document.createElement('div');
       darkSwatch.className = 'swatch dark';
@@ -1021,7 +1144,7 @@
       // 'original' image's dark swatch is a real, droppable slot.
       if (entry.mode === 'original') {
         darkSwatch.classList.add('droppable');
-        darkSwatch.title += ' — drop a PNG here to ' + (entry.hasDark ? 'replace it' : 'add one');
+        darkSwatch.title += ' — click or drop a PNG here to ' + (entry.hasDark ? 'replace it' : 'add one');
         wireDropZone(darkSwatch, async (files) => {
           try {
             const dark = await fileToBase64(files[0]);
@@ -1032,6 +1155,7 @@
             showToast('err', err.message);
           }
         });
+        wireClickToUpload(darkSwatch, darkDensityRow.baseButton);
       }
 
       wrap.appendChild(swatches);
@@ -1073,7 +1197,7 @@
       const densityLabel = document.createElement('label');
       densityLabel.textContent = 'Light appearance';
       densityBlock.appendChild(densityLabel);
-      densityBlock.appendChild(densityRow(entry, 'light'));
+      densityBlock.appendChild(lightDensityRow.row);
       const lightHelp = document.createElement('div');
       lightHelp.className = 'field-help';
       lightHelp.textContent = 'Needs at least one density — Metro picks whichever exist up automatically via its own require() density resolution, no code changes needed.';
@@ -1083,7 +1207,7 @@
       darkGroupLabel.textContent = 'Dark appearance';
       darkGroupLabel.style.marginTop = '10px';
       densityBlock.appendChild(darkGroupLabel);
-      densityBlock.appendChild(densityRow(entry, 'dark'));
+      densityBlock.appendChild(darkDensityRow.row);
       const darkHelp = document.createElement('div');
       darkHelp.className = 'field-help';
       darkHelp.textContent = entry.hasDark
@@ -1219,7 +1343,73 @@
         }
       });
       wrapper.append(btn, input);
+      // Exposed so a swatch/visualization box elsewhere on the page can trigger this exact
+      // button's own click handling (which opens the file picker) instead of wiring up a second,
+      // separate upload path for the same slot.
+      wrapper.triggerClick = () => btn.click();
       return wrapper;
+    }
+
+    async function copyToClipboard(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    const COPY_ICON_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5"/><path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1"/></svg>';
+    const REVEAL_ICON_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"/></svg>';
+
+    /** One "assets/…" path row — shown next to every physical image/color/app-icon file this tool
+     * knows about, so a project's own Finder/Xcode-side inspection never has to guess which
+     * generated file backs which catalog entry. `relativePath` is relative to assets/ (e.g.
+     * "images/drawer/home/home_light@2x.png"); `revealPayload` is the body handed straight to
+     * POST /api/reveal (see resolveRevealTarget in asset-catalog-server.js) — whatever shape
+     * identifies this exact file server-side. Clicking the path text itself, or the copy icon,
+     * copies "assets/<relativePath>" to the clipboard; the arrow icon asks the server to open the
+     * OS file manager with the real file selected (best-effort — see revealInFileExplorer's own
+     * comment for the Linux caveat). */
+    function createPathRow(relativePath, revealPayload) {
+      const fullPath = `assets/${relativePath}`;
+      const row = document.createElement('div');
+      row.className = 'path-row';
+
+      const text = document.createElement('button');
+      text.type = 'button';
+      text.className = 'path-text';
+      text.textContent = fullPath;
+      text.title = `${fullPath} — click to copy`;
+
+      async function doCopy() {
+        const ok = await copyToClipboard(fullPath);
+        showToast(ok ? 'ok' : 'err', ok ? 'Path copied to clipboard' : 'Could not copy to clipboard');
+      }
+      text.addEventListener('click', doCopy);
+
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'path-icon-btn';
+      copyBtn.innerHTML = COPY_ICON_SVG;
+      copyBtn.title = 'Copy path';
+      copyBtn.addEventListener('click', doCopy);
+
+      const revealBtn = document.createElement('button');
+      revealBtn.type = 'button';
+      revealBtn.className = 'path-icon-btn';
+      revealBtn.innerHTML = REVEAL_ICON_SVG;
+      revealBtn.title = 'Reveal in file explorer';
+      revealBtn.addEventListener('click', async () => {
+        try {
+          await api('POST', '/api/reveal', revealPayload);
+        } catch (err) {
+          showToast('err', err.message);
+        }
+      });
+
+      row.append(text, copyBtn, revealBtn);
+      return row;
     }
 
     // Quick-add candidates offered as ready-made badges — matches metro-config's default
@@ -1235,6 +1425,14 @@
 
     function densitySlot(group, density) {
       return density === '1' ? group : `${group}@${density}x`;
+    }
+
+    /** Mirrors lib/asset-catalog-core.js's slotFilename exactly (same pure string assembly, same
+     * "only the leaf segment of a namespaced name" rule) — needed client-side so a path row can be
+     * built without a round trip to the server for a filename it can already compute. */
+    function clientSlotFilename(name, slot) {
+      const base = name.slice(name.lastIndexOf('/') + 1);
+      return `${base}_${slot}.png`;
     }
 
     /** One row per appearance (light/dark) — the base (1x) file's badge+Add/Replace(+Remove) is
@@ -1258,6 +1456,9 @@
 
       const present = entry.densities[group]; // sorted array of density strings, e.g. ['1','1.5','4']
       const presentSet = new Set(present);
+      // The base (1x) entry's own Add/Replace button — exposed so the swatch preview above (in
+      // renderEntryDetail) can forward a click straight into it instead of duplicating the upload.
+      let baseButton = null;
 
       function addBadgeAndControls(container, density) {
         const has = presentSet.has(density);
@@ -1269,7 +1470,16 @@
         badge.textContent = has ? label : `${label} —`;
         container.appendChild(badge);
 
-        container.appendChild(fileButton(
+        if (has) {
+          const filename = clientSlotFilename(entry.name, slot);
+          container.appendChild(createPathRow(`images/${entry.name}/${filename}`, {
+            kind: 'image',
+            name: entry.name,
+            filename,
+          }));
+        }
+
+        const addReplaceBtn = fileButton(
           has ? 'Replace' : 'Add',
           `Upload the ${label} file for the ${group} appearance`,
           async (file) => {
@@ -1278,7 +1488,9 @@
             applyResult(json);
             showToast('ok', `${entry.name}: ${group} ${label} ${has ? 'replaced' : 'added'}`);
           },
-        ));
+        );
+        container.appendChild(addReplaceBtn);
+        if (density === '1') baseButton = addReplaceBtn;
 
         if (has) {
           const isLastLight = group === 'light' && present.length === 1;
@@ -1352,7 +1564,7 @@
       variants.appendChild(customWrap);
 
       row.appendChild(variants);
-      return row;
+      return { row, baseButton };
     }
 
     function renderNewDetail() {
@@ -1555,8 +1767,8 @@
       swatches.className = 'swatches';
 
       const lightSwatch = document.createElement('div');
-      lightSwatch.className = 'swatch';
-      lightSwatch.style.background = entry.light;
+      lightSwatch.className = 'swatch color-preview';
+      lightSwatch.style.backgroundColor = entry.light;
       const lightLabel = document.createElement('div');
       lightLabel.className = 'swatch-label';
       lightLabel.textContent = 'light';
@@ -1564,8 +1776,8 @@
       swatches.appendChild(lightSwatch);
 
       const darkSwatch = document.createElement('div');
-      darkSwatch.className = 'swatch';
-      darkSwatch.style.background = entry.dark;
+      darkSwatch.className = 'swatch color-preview';
+      darkSwatch.style.backgroundColor = entry.dark;
       const darkLabel = document.createElement('div');
       darkLabel.className = 'swatch-label';
       darkLabel.textContent = 'dark';
@@ -1578,19 +1790,23 @@
       lightBlock.className = 'field-block';
       const lightPickerLabel = document.createElement('label');
       lightPickerLabel.textContent = 'Light color';
+      const lightSplit = splitHexAlpha(entry.light);
       const lightInput = document.createElement('input');
       lightInput.type = 'color';
-      lightInput.value = entry.light;
-      lightInput.addEventListener('input', async () => {
+      lightInput.value = lightSplit.rgbHex;
+      async function updateLight() {
         try {
-          const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { light: lightInput.value });
+          const combined = joinHexAlpha(lightInput.value, Number(lightAlpha.input.value));
+          const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { light: combined });
           applyResult(json);
           showToast('ok', `${entry.name}: light color updated`);
         } catch (err) {
           showToast('err', err.message);
         }
-      });
-      lightBlock.append(lightPickerLabel, lightInput);
+      }
+      lightInput.addEventListener('input', updateLight);
+      const lightAlpha = createAlphaRow(lightSplit.alphaPct, updateLight);
+      lightBlock.append(lightPickerLabel, lightInput, lightAlpha.row);
       wrap.appendChild(lightBlock);
 
       const darkBlock = document.createElement('div');
@@ -1612,14 +1828,29 @@
       const hasOverride = entry.dark !== entry.light;
       darkToggle.value = hasOverride ? 'custom' : 'same';
 
+      const darkSplit = splitHexAlpha(entry.dark);
       const darkInput = document.createElement('input');
       darkInput.type = 'color';
-      darkInput.value = entry.dark;
+      darkInput.value = darkSplit.rgbHex;
       darkInput.style.display = hasOverride ? '' : 'none';
+
+      async function updateDark() {
+        try {
+          const combined = joinHexAlpha(darkInput.value, Number(darkAlpha.input.value));
+          const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: combined });
+          applyResult(json);
+          showToast('ok', `${entry.name}: dark color updated`);
+        } catch (err) {
+          showToast('err', err.message);
+        }
+      }
+      const darkAlpha = createAlphaRow(darkSplit.alphaPct, updateDark);
+      darkAlpha.row.style.display = hasOverride ? '' : 'none';
 
       darkToggle.addEventListener('change', async () => {
         if (darkToggle.value === 'same') {
           darkInput.style.display = 'none';
+          darkAlpha.row.style.display = 'none';
           try {
             const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: null });
             applyResult(json);
@@ -1629,9 +1860,11 @@
           }
         } else {
           darkInput.style.display = '';
-          darkInput.value = entry.light;
+          darkAlpha.row.style.display = '';
+          darkInput.value = lightInput.value;
+          darkAlpha.setAlphaPct(Number(lightAlpha.input.value));
           try {
-            const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: darkInput.value });
+            const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: joinHexAlpha(darkInput.value, Number(darkAlpha.input.value)) });
             applyResult(json);
             showToast('ok', `${entry.name}: dark color set`);
           } catch (err) {
@@ -1639,20 +1872,12 @@
           }
         }
       });
-      darkInput.addEventListener('input', async () => {
-        try {
-          const json = await api('PUT', `/api/colors/${encodeURIComponent(entry.name)}`, { dark: darkInput.value });
-          applyResult(json);
-          showToast('ok', `${entry.name}: dark color updated`);
-        } catch (err) {
-          showToast('err', err.message);
-        }
-      });
+      darkInput.addEventListener('input', updateDark);
 
       const darkHelp = document.createElement('div');
       darkHelp.className = 'field-help';
       darkHelp.textContent = 'Same as light = falls back to the light color everywhere. Custom = a distinct dark-mode value.';
-      darkBlock.append(darkToggleLabel, darkToggle, darkInput, darkHelp);
+      darkBlock.append(darkToggleLabel, darkToggle, darkInput, darkAlpha.row, darkHelp);
       wrap.appendChild(darkBlock);
 
       wrap.appendChild(document.createElement('hr')).className = 'divider';
@@ -1707,7 +1932,8 @@
       const lightInput = document.createElement('input');
       lightInput.type = 'color';
       lightInput.value = '#000000';
-      lightBlock.append(lightLabel, lightInput);
+      const lightAlpha = createAlphaRow(100, () => {});
+      lightBlock.append(lightLabel, lightInput, lightAlpha.row);
       wrap.appendChild(lightBlock);
 
       const darkBlock = document.createElement('div');
@@ -1725,13 +1951,17 @@
       darkInput.type = 'color';
       darkInput.value = '#ffffff';
       darkInput.style.display = 'none';
+      const darkAlpha = createAlphaRow(100, () => {});
+      darkAlpha.row.style.display = 'none';
       darkToggle.addEventListener('change', () => {
-        darkInput.style.display = darkToggle.value === 'custom' ? '' : 'none';
+        const isCustom = darkToggle.value === 'custom';
+        darkInput.style.display = isCustom ? '' : 'none';
+        darkAlpha.row.style.display = isCustom ? '' : 'none';
       });
       const darkHelp = document.createElement('div');
       darkHelp.className = 'field-help';
       darkHelp.textContent = 'Optional — defaults to "same as light" if left as-is.';
-      darkBlock.append(darkToggleLabel, darkToggle, darkInput, darkHelp);
+      darkBlock.append(darkToggleLabel, darkToggle, darkInput, darkAlpha.row, darkHelp);
       wrap.appendChild(darkBlock);
 
       const actionsBlock = document.createElement('div');
@@ -1755,8 +1985,8 @@
       createBtn.addEventListener('click', async () => {
         const name = nameInput.value.trim();
         try {
-          const body = { name, light: lightInput.value };
-          if (darkToggle.value === 'custom') body.dark = darkInput.value;
+          const body = { name, light: joinHexAlpha(lightInput.value, Number(lightAlpha.input.value)) };
+          if (darkToggle.value === 'custom') body.dark = joinHexAlpha(darkInput.value, Number(darkAlpha.input.value));
           const json = await api('POST', '/api/colors', body);
           selectedColor = name;
           applyResult(json);
@@ -1932,7 +2162,7 @@
       swatch.style.width = '96px';
       swatch.style.maxWidth = '96px';
       swatch.style.height = '96px';
-      swatch.title = filename ? 'Drop a PNG here to replace it' : 'Drop a PNG here to add it';
+      swatch.title = filename ? 'Click or drop a PNG here to replace it' : 'Click or drop a PNG here to add it';
       if (filename) {
         const img = document.createElement('img');
         img.src = appIconSrc(platform, filename);
@@ -1959,13 +2189,16 @@
           showToast('err', err.message);
         }
       });
+      const addReplaceBtn = fileButton(filename ? 'Replace' : 'Add', `Upload the ${slot} image`, upload);
+      wireClickToUpload(swatch, addReplaceBtn);
 
       const controls = document.createElement('div');
       controls.style.display = 'flex';
       controls.style.flexDirection = 'column';
       controls.style.gap = '6px';
-      controls.appendChild(fileButton(filename ? 'Replace' : 'Add', `Upload the ${slot} image`, upload));
+      controls.appendChild(addReplaceBtn);
       if (filename) {
+        controls.appendChild(createPathRow(`app-icon/${platform}/${filename}`, { kind: 'app-icon', platform, slot, filename }));
         const removeBtn = document.createElement('button');
         removeBtn.type = 'button';
         removeBtn.textContent = 'Remove';

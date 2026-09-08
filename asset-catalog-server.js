@@ -33,6 +33,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const { execFile } = require("child_process");
 const {
   slotFilename,
   isSlotKey,
@@ -624,6 +625,72 @@ async function handleUndo(req, res) {
   sendJson(res, 200, withUndoMeta({ ...regenerate(), undone: entry.label }));
 }
 
+/** Best-effort "reveal in Finder/Explorer" for one physical file — spawns the OS's own file
+ * manager pointed at it, mirroring what right-click > "Reveal in Finder" does in Xcode's asset
+ * catalog. macOS's `open -R` and Windows' `explorer.exe /select,` both open the containing folder
+ * WITH the file pre-selected; there's no equivalent single command across Linux file managers, so
+ * this just opens the containing folder there via `xdg-open` (nothing to select). Never rejects on
+ * a non-zero exit code — explorer.exe in particular is known to return a nonzero code on success —
+ * only a missing binary (ENOENT) surfaces as a real error. */
+function revealInFileExplorer(absPath) {
+  return new Promise((resolve, reject) => {
+    let cmd;
+    let args;
+    if (process.platform === "darwin") {
+      cmd = "open";
+      args = ["-R", absPath];
+    } else if (process.platform === "win32") {
+      cmd = "explorer.exe";
+      args = [`/select,${absPath}`];
+    } else {
+      cmd = "xdg-open";
+      args = [path.dirname(absPath)];
+    }
+    execFile(cmd, args, (err) => {
+      if (err && err.code === "ENOENT") {
+        reject(new AssetCatalogError(`could not find "${cmd}" on this system`));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+/** Resolves one of body.{image,app-icon} into the real absolute path of an already-existing
+ * physical file, reusing the exact same name/filename validation serveImageFile/serveAppIconFile
+ * use (so a request can't escape its recognized directory) — the one addition here is confirming
+ * the file is actually present on disk, since revealing a nonexistent file makes no sense (unlike
+ * the GET routes, which 404 in that case; here it's a plain validation error instead). Colors have
+ * no physical per-file path to reveal (a color.json isn't shown/managed as a file in the editor
+ * the way an image/app-icon slot is), so there's no "color" kind here. */
+function resolveRevealTarget(body) {
+  if (body.kind === "image") {
+    const dir = resolveImageDir(imagesDir, body.name);
+    if (!parseSlotFilename(body.name, body.filename)) {
+      throw new AssetCatalogError("invalid image file");
+    }
+    return path.join(dir, body.filename);
+  }
+  if (body.kind === "app-icon") {
+    const dir = resolveAppIconPlatformDir(appIconDir, body.platform);
+    if (!isAppIconSlot(body.platform, body.slot) || appIconSlotFilename(body.platform, body.slot) !== body.filename) {
+      throw new AssetCatalogError("invalid app-icon file");
+    }
+    return path.join(dir, body.filename);
+  }
+  throw new AssetCatalogError('"kind" must be "image" or "app-icon"');
+}
+
+async function handleReveal(req, res) {
+  const body = await readJsonBody(req);
+  const absPath = resolveRevealTarget(body);
+  if (!fs.existsSync(absPath)) {
+    throw new AssetCatalogError("file does not exist");
+  }
+  await revealInFileExplorer(absPath);
+  sendJson(res, 200, { revealed: true });
+}
+
 function serveStaticFile(res, filePath, contentType) {
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -739,6 +806,9 @@ const server = http.createServer((req, res) => {
       }
       if (req.method === "POST" && segments[0] === "api" && segments[1] === "undo" && segments.length === 2) {
         return handleUndo(req, res);
+      }
+      if (req.method === "POST" && segments[0] === "api" && segments[1] === "reveal" && segments.length === 2) {
+        return handleReveal(req, res);
       }
       sendError(res, 404, "not found");
     })
