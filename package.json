@@ -48,7 +48,8 @@
   "scripts": {
     "postinstall": "node ./postinstall.js",
     "preuninstall": "node ./uninstall.js",
-    "test": "echo \"no test suite yet\" && exit 0"
+    "test": "echo \"no test suite yet\" && exit 0",
+    "dev": "mkdir -p dev-sandbox && cd dev-sandbox && ASSET_CATALOG_PORT=${ASSET_CATALOG_PORT:-4790} node ../asset-catalog-server.js"
   },
   "dependencies": {},
   "devDependencies": {}

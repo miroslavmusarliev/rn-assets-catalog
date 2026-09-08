@@ -1,3 +1,8 @@
 node_modules/
 .DS_Store
 *.log
+
+# Local sandbox for running/inspecting the editor against this repo itself (this repo IS the
+# tool, so it has no real assets/images/colors of its own) — created on demand by `npm run dev`,
+# never meant to be committed.
+/dev-sandbox/
